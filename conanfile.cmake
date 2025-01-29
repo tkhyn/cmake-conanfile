@@ -38,24 +38,34 @@ function(_check_conan)
 
   if (NOT DEFINED CONANFILE_CONAN_CMD)
     # Try system-wide conan
-    set(CONANFILE_CONAN_CMD conan CACHE INTERNAL "Conan executable for conanfile module")
+    set(CONANFILE_CONAN_CMD "conan" CACHE INTERNAL "Conan executable for conanfile module")
   endif()
 
   # conan was found, check that the version matches the requirement
   execute_process(
-    COMMAND ${CONANFILE_CONAN_CMD} --version
+    COMMAND ${CMAKE_COMMAND} -E env ${CONANFILE_CONAN_CMD} --version
     RESULT_VARIABLE VERSION_RESULT
     OUTPUT_VARIABLE VERSION_INSTALLED
+    ERROR_VARIABLE VERSION_ERROR
   )
 
   if(NOT VERSION_RESULT STREQUAL "0")
-    message(NOTICE "Conanfile: Conan not found")
+    message(NOTICE "Conanfile: Conan not found (tried '${CONANFILE_CONAN_CMD}')")
     unset(CONANFILE_CONAN_CMD CACHE)
     return()
   endif()
 
   if (VERSION_INSTALLED MATCHES ".*Conan version ([0-9]+\\.[0-9]+\\.[0-9]+)[\\s\\r\\n]*")
     set(VERSION_INSTALLED ${CMAKE_MATCH_1})
+
+    # sanity check
+    if(VERSION_INSTALLED VERSION_LESS "2.0.0")
+      message(
+        FATAL_ERROR
+        "Conanfile: incorrect conan version (${VERSION_INSTALLED}). cmake-conanfile only works with conan 2"
+      )
+    endif()
+
     set(REQ_RESULT)
     set(VERSION_REQUIREMENTS ${CONANFILE_CONAN_VERSION})
     if (NOT VERSION_REQUIREMENTS)
@@ -153,22 +163,27 @@ function(_check_conan)
       )
       unset(CONANFILE_CONAN_CMD CACHE)
     else()
-      if (${CONANFILE_CONAN_CMD} STREQUAL "conan")
+      if ("${CONANFILE_CONAN_CMD}" STREQUAL "conan")
         message(
           STATUS
           "Conanfile: Using system conan (version ${VERSION_INSTALLED})"
         )
       else()
+        list(GET CONANFILE_CONAN_CMD -1 CONANFILE_CONAN_CMD_FOR_MSG)
+        list(GET CONANFILE_CONAN_CMD -2 CONANFILE_CONAN_HOME)
         message(
           STATUS
-          "Conanfile: Using conan from ${CONANFILE_CONAN_CMD} (version ${VERSION_INSTALLED})"
+          "Conanfile: Using conan from ${CONANFILE_CONAN_CMD_FOR_MSG} (version ${VERSION_INSTALLED}) "
+          "with ${CONANFILE_CONAN_HOME}"
         )
       endif()
     endif()
   else()
+    list(GET CONANFILE_CONAN_CMD -1 CONANFILE_CONAN_CMD_FOR_MSG)
     message(
       NOTICE
-      "Conanfile: Could not extract conan version from \"${CONANFILE_CONAN_CMD} --version\" (\"${VERSION_INSTALLED}\")."
+      "Conanfile: Could not extract conan version from \"${CONANFILE_CONAN_CMD_FOR_MSG} --version\"
+      (\"${VERSION_INSTALLED}\")."
     )
     unset(CONANFILE_CONAN_CMD CACHE)
 
@@ -183,11 +198,15 @@ function(_check_venv)
     return()
   endif()
 
-  execute_process(COMMAND ${CONANFILE_VENV_PYTHON_CMD} --version RESULT_VARIABLE CONANFILE_PYTHON_CMD)
+  execute_process(
+    COMMAND ${CONANFILE_VENV_PYTHON_CMD} --version
+    RESULT_VARIABLE CONANFILE_PYTHON_CMD
+    OUTPUT_VARIABLE CONANFILE_PYTHON_VERSION
+  )
 
   if(NOT CONANFILE_PYTHON_CMD EQUAL 0)
     message(
-      NOTICE "Conanfile: Invalid python executable found in virtual environment"
+      NOTICE "Conanfile: Invalid virtual environment or python executable (tried ${CONANFILE_VENV_PYTHON_CMD})"
     )
     unset(CONANFILE_VENV_PYTHON_CMD CACHE)
   endif()
@@ -196,11 +215,18 @@ endfunction()
 
 function(_conanfile_setup)
 
-  # We may already be setup - check this first
-  _check_conan()
-  if (DEFINED CONANFILE_CONAN_CMD)
-    # Conan found and valid, no need to do anything
-    return()
+  if(DEFINED CONANFILE_LOCAL_CONAN_HOME AND DEFINED CONANFILE_CONAN_CMD AND
+    NOT CONANFILE_CONAN_CMD MATCHES "^CONAN_HOME=${CONANFILE_LOCAL_CONAN_HOME}.+"
+  )
+    message(NOTICE "Conanfile: CONANFILE_LOCAL_CONAN_HOME has changed. Reinstalling conan.")
+    unset(CONANFILE_CONAN_CMD CACHE)
+  else()
+    # We may already be setup - check this first
+    _check_conan()
+    if(DEFINED CONANFILE_CONAN_CMD)
+      # Conan found and valid, no need to do anything
+      return()
+    endif()
   endif()
 
   # Conan not found, wrong version or incorrectly installed, (re)install
@@ -208,17 +234,39 @@ function(_conanfile_setup)
   # Check that we have a functional virtual environment and python executable
   _check_venv()
 
-  if (NOT DEFINED CONANFILE_VENV_PYTHON_CMD)
+  # Figure out default virtual environment path if not user-defined
+  if (DEFINED CONANFILE_LOCAL_CONAN_HOME)
+    # User-defined conan home
+    set(CONAN_HOME "${CONANFILE_LOCAL_CONAN_HOME}")
+  else()
+    # By default, the conan home is in the project source directory, so that all conan packages
+    # for the project can be shared among builds
+    set(CONAN_HOME "${PROJECT_SOURCE_DIR}/.conan")
+  endif()
+  if (NOT EXISTS "${CONAN_HOME}")
+    file(MAKE_DIRECTORY "${CONAN_HOME}")
+  endif()
+  # This will set CONAN_HOME when conan is run
+  set(SET_CONAN_HOME "CONAN_HOME=${CONAN_HOME}")
+
+  set(REBUILD_VENV FALSE)
+  if (DEFINED CONANFILE_VENV_PYTHON_CMD)
+    # Check if conan home has changed since last time, if so, rebuild venv
+    if (NOT "${CONANFILE_VENV_PYTHON_CMD}" MATCHES "${CONAN_HOME}/venv/(Scripts/python.exe|bin/python)")
+      set(REBUILD_VENV TRUE)
+    endif()
+  else()
+    set(REBUILD_VENV TRUE)
+  endif()
+
+  if (REBUILD_VENV)
     # Issue with virtual environment's python, this needs to be reinstalled
 
-    # Figure out default virtual environment path if not user-defined
-    if (NOT DEFINED CONANFILE_VENV_PATH)
-      set(CONANFILE_VENV_PATH "${PROJECT_BINARY_DIR}/conanfile_venv")
-    endif()
-
+    # This is where the virtual environment will be created
+    set(VENV_DIR "${CONAN_HOME}/venv")
     # Clear venv directory
-    if (EXISTS "${CONANFILE_VENV_PATH}")
-      file(REMOVE_RECURSE "${CONANFILE_VENV_PATH}")
+    if (EXISTS "${VENV_DIR}")
+      file(REMOVE_RECURSE "${VENV_DIR}")
     endif()
 
     # look for python
@@ -249,8 +297,11 @@ function(_conanfile_setup)
     endif()
 
     # now we have a pyton executable to create the virtual environment from
+    message(
+      STATUS "Conanfile: Creating virtual environment for Conan in ${VENV_DIR}"
+    )
     execute_process(
-      COMMAND "${PYTHON_EXECUTABLE}" -m venv "${CONANFILE_VENV_PATH}"
+      COMMAND "${PYTHON_EXECUTABLE}" -m venv "${VENV_DIR}"
       RESULT_VARIABLE VENV_CREATE_RESULT
       OUTPUT_VARIABLE VENV_CREATE_OUTPUT
       ERROR_VARIABLE VENV_CREATE_ERROR
@@ -270,18 +321,21 @@ function(_conanfile_setup)
       set(PYTHON_REL_PATH bin/python)
     endif()
     set(
-      CONANFILE_VENV_PYTHON_CMD "${CONANFILE_VENV_PATH}/${PYTHON_REL_PATH}"
+      CONANFILE_VENV_PYTHON_CMD "${VENV_DIR}/${PYTHON_REL_PATH}"
       CACHE INTERNAL "Python executable for conanfile"
     )
-
   endif()
+
+  message(
+    STATUS "Conanfile: Using python from ${CONANFILE_VENV_PYTHON_CMD}"
+  )
 
   # Extract pip path from python executable path
   cmake_path(GET CONANFILE_VENV_PYTHON_CMD PARENT_PATH VENV_BIN_DIR)
-  cmake_path(GET VENV_BIN_DIR PARENT_PATH CONANFILE_VENV_PATH)
+  cmake_path(GET VENV_BIN_DIR PARENT_PATH VENV_DIR)
 
-  if (DEFINED CONANFILE_CONAN_MIN_VERSION)
-    set(PIP_INSTALL_CONAN conan>=${CONANFILE_CONAN_MIN_VERSION})
+  if (DEFINED CONANFILE_CONAN_VERSION)
+    set(PIP_INSTALL_CONAN conan${CONANFILE_CONAN_VERSION})
   else()
     set(PIP_INSTALL_CONAN conan)
   endif()
@@ -289,7 +343,7 @@ function(_conanfile_setup)
   # Invoke pip to (re) install conan
   message(
     STATUS
-    "Conanfile: Installing ${PIP_INSTALL_CONAN} in ${CONANFILE_VENV_PATH} virtual environment."
+    "Conanfile: Installing ${PIP_INSTALL_CONAN} in ${VENV_DIR} virtual environment."
   )
   execute_process(
     COMMAND ${VENV_BIN_DIR}/pip install ${PIP_INSTALL_CONAN} --force-reinstall
@@ -305,11 +359,15 @@ function(_conanfile_setup)
     )
   endif()
 
-  find_program(CONAN_CMD conan HINTS ${VENV_BIN_DIR} NO_DEFAULT_PATH)
-  set(CONANFILE_CONAN_CMD ${CONAN_CMD} CACHE INTERNAL "Conan executable for conanfile module")
+  find_program(CONAN_CMD conan HINTS ${VENV_BIN_DIR} NO_DEFAULT_PATH NO_CACHE)
+  set(CONANFILE_CONAN_CMD "${SET_CONAN_HOME};${CONAN_CMD}" CACHE INTERNAL "Conan executable for conanfile module")
 
   # check that it's all good
   _check_conan()
+
+  if(NOT DEFINED CONANFILE_CONAN_CMD)
+    message(FATAL_ERROR "Conanfile: Conan installation failed. Please look at the CMake log to investigate.")
+  endif()
 
 endfunction()
 
@@ -661,7 +719,7 @@ function(_conanfile_detect_build_settings DETECTED_SETTINGS)
   string(SHA256 PROFILE_HASH ${CMAKE_CURRENT_BINARY_DIR})
   set(PROFILE_NAME cmake-conanfile_detect_${PROFILE_HASH})
   execute_process(
-    COMMAND ${CONANFILE_CONAN_CMD} profile detect --name ${PROFILE_NAME} --force
+    COMMAND ${CMAKE_COMMAND} -E env ${CONANFILE_CONAN_CMD} profile detect --name ${PROFILE_NAME} --force
     RESULT_VARIABLE PROFILE_DETECT_RESULT
     OUTPUT_VARIABLE PROFILE_DETECT_OUTPUT
     ERROR_VARIABLE PROFILE_DETECT_ERROR
@@ -675,7 +733,7 @@ function(_conanfile_detect_build_settings DETECTED_SETTINGS)
   endif()
 
   execute_process(
-    COMMAND ${CONANFILE_CONAN_CMD} profile path ${PROFILE_NAME}
+    COMMAND ${CMAKE_COMMAND} -E env ${CONANFILE_CONAN_CMD} profile path ${PROFILE_NAME}
     RESULT_VARIABLE PROFILE_PATH_RESULT
     OUTPUT_VARIABLE PROFILE_PATH_OUTPUT
     ERROR_VARIABLE PROFILE_PATH_ERROR
@@ -690,7 +748,7 @@ function(_conanfile_detect_build_settings DETECTED_SETTINGS)
 
 
   execute_process(
-    COMMAND ${CONANFILE_CONAN_CMD} profile show -f json -pr:b ${PROFILE_NAME} -pr:h ${PROFILE_NAME}
+    COMMAND ${CMAKE_COMMAND} -E env ${CONANFILE_CONAN_CMD} profile show -f json -pr:b ${PROFILE_NAME} -pr:h ${PROFILE_NAME}
     RESULT_VARIABLE PROFILE_JSON_RESULT
     OUTPUT_VARIABLE PROFILE_JSON
     ERROR_VARIABLE PROFILE_JSON_ERROR
@@ -796,7 +854,7 @@ function(_conanfile)
   set(CONANFILE_HASH_FILE ${CONANFILE_OUTPUT_DIR}/_hash)
   # TODO: get conan version and add it to hash
   string(SHA256 CONANFILE_HASH
-    "${CONANFILE_OUTPUT}{CONANFILE_HOST_SETTINGS}${CONANFILE_HOST_ENV}${CONANFILE_BUILD_CONF}${CONANFILE_HOST_CONF}"
+    "${CONANFILE_CONAN_CMD}${CONANFILE_OUTPUT}{CONANFILE_HOST_SETTINGS}${CONANFILE_HOST_ENV}${CONANFILE_BUILD_CONF}${CONANFILE_HOST_CONF}"
   )
 
   # load existing hash
@@ -847,7 +905,7 @@ function(_conanfile)
     message(STATUS "Conanfile: running ${CONANFILE_CONAN_CMD} ${CONANFILE_INSTALL_ARGS_STR}")
 
     execute_process(
-      COMMAND ${CONANFILE_CONAN_CMD} ${CONANFILE_INSTALL_ARGS}
+      COMMAND ${CMAKE_COMMAND} -E env ${CONANFILE_CONAN_CMD} ${CONANFILE_INSTALL_ARGS}
       RESULT_VARIABLE CONANFILE_INSTALL_RESULT
       OUTPUT_VARIABLE CONANFILE_INSTALL_OUTPUT
       ERROR_VARIABLE CONANFILE_INSTALL_ERROR
