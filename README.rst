@@ -70,9 +70,9 @@ Setup
 The behaviour of ``cmake-conanfile`` can be customised using optional cmake variables, that must be
 defined before the call to ``include(conanfile)``.
 
-CONANFILE_CONAN_MIN_VERSION
-   The minimal required version of Conan. Default is 2.0. If Conan is installed system-wide and is
-   suitable (i.e. the installed version is above ``CONANFILE_CONAN_MIN_VERSION``, it will use it.
+CONANFILE_CONAN_VERSION = ~=2.0
+   The version requirement of Conan, `pip-style <https://pip.pypa.io/en/stable/reference/requirement-specifiers/>`_.
+   If Conan is installed system-wide and meets the version requirements, it will use it.
    Otherwise the latest available version will be installed in a virtual environment.
 
 CONANFILE_VENV_DIR

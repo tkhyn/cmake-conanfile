@@ -44,41 +44,131 @@ function(_check_conan)
   # conan was found, check that the version matches the requirement
   execute_process(
     COMMAND ${CONANFILE_CONAN_CMD} --version
-    RESULT_VARIABLE CONAN_VERSION_RESULT
-    OUTPUT_VARIABLE CONAN_VERSION_INSTALLED
+    RESULT_VARIABLE VERSION_RESULT
+    OUTPUT_VARIABLE VERSION_INSTALLED
   )
 
-  if(NOT CONAN_VERSION_RESULT STREQUAL "0")
+  if(NOT VERSION_RESULT STREQUAL "0")
     message(NOTICE "Conanfile: Conan not found")
     unset(CONANFILE_CONAN_CMD CACHE)
     return()
   endif()
 
-  if (CONAN_VERSION_INSTALLED MATCHES ".*Conan version ([0-9]+\\.[0-9]+\\.[0-9]+)[\\s\\r\\n]*")
-    set(CONAN_VERSION_INSTALLED ${CMAKE_MATCH_1})
-    if (DEFINED CONANFILE_CONAN_MIN_VERSION AND CONAN_VERSION_INSTALLED VERSION_LESS CONANFILE_CONAN_MIN_VERSION)
+  if (VERSION_INSTALLED MATCHES ".*Conan version ([0-9]+\\.[0-9]+\\.[0-9]+)[\\s\\r\\n]*")
+    set(VERSION_INSTALLED ${CMAKE_MATCH_1})
+    set(REQ_RESULT)
+    set(VERSION_REQUIREMENTS ${CONANFILE_CONAN_VERSION})
+    if (NOT VERSION_REQUIREMENTS)
+      set(VERSION_REQUIREMENTS ~=2.0)
+    endif()
+
+    string(REPLACE " " "" VERSION_REQUIREMENTS ${VERSION_REQUIREMENTS})
+    string(REPLACE "," ";" VERSION_REQUIREMENTS ${VERSION_REQUIREMENTS})
+    list(LENGTH VERSION_REQUIREMENTS N_REQUIREMENTS)
+    if (N_REQUIREMENTS EQUAL 0)
+      message(
+        FATAL_ERROR
+        "Conanfile: No Conan version requirement defined in CONANFILE_CONAN_VERSION"
+      )
+    elseif(N_REQUIREMENTS GREATER 2)
+      message(
+        FATAL_ERROR
+        "Conanfile: Cannot have more than 2 version requirements defined in CONANFILE_CONAN_VERSION"
+      )
+    else()
+      foreach(VERSION_REQUIREMENT IN LISTS VERSION_REQUIREMENTS)
+        string(
+          REGEX MATCH "(==|>=|>|~=|<|<=)([0-9]+(\.[0-9]+(\.[0-9]+)?)?)"
+          VERSION_REQUIREMENT_MATCH ${VERSION_REQUIREMENT}
+        )
+        if(CMAKE_MATCH_COUNT LESS 2)
+          message(
+            FATAL_ERROR
+            "Conanfile: Could not parse version requirement '${VERSION_REQUIREMENT}'"
+          )
+        endif()
+        set(VERSION_OPERATOR ${CMAKE_MATCH_1})
+        set(VERSION_OPERAND ${CMAKE_MATCH_2})
+        if (VERSION_OPERATOR STREQUAL "==")
+          # exact match
+          if (NOT VERSION_INSTALLED VERSION_EQUAL VERSION_OPERAND)
+            list(APPEND REQ_RESULT "${VERSION_INSTALLED} does not match ${VERSION_OPERAND}")
+          endif()
+        elseif(VERSION_OPERATOR STREQUAL ">")
+          # strictly greater
+          if (NOT VERSION_INSTALLED VERSION_GREATER VERSION_OPERAND)
+            list(APPEND REQ_RESULT "${VERSION_INSTALLED} is not greater than ${VERSION_OPERAND}")
+          endif()
+        elseif(VERSION_OPERATOR STREQUAL ">=")
+          # greater or equal
+          if (NOT VERSION_INSTALLED VERSION_GREATER_EQUAL VERSION_OPERAND)
+            list(APPEND REQ_RESULT "${VERSION_INSTALLED} is not greater or equal than ${VERSION_OPERAND}")
+          endif()
+        elseif(VERSION_OPERATOR STREQUAL "~=")
+          # versions must match except the last specified number
+          if(NOT VERSION_INSTALLED VERSION_GREATER_EQUAL VERSION_OPERAND)
+            if (NOT VERSION_INSTALLED VERSION_GREATER_EQUAL VERSION_OPERAND)
+              list(APPEND REQ_RESULT "${VERSION_INSTALLED} is not greater or equal than ${VERSION_OPERAND}")
+            endif()
+          else()
+            # trim installed version string to make its length match the requirement
+            set(VERSION_INSTALLED_TRIMMED ${VERSION_INSTALLED})
+            set(VERSION_OPERAND_TRIMMED ${VERSION_OPERAND})
+            foreach(VERSION IN ITEMS OPERAND INSTALLED)
+              # remove the last version in each version string
+              string(REPLACE "." ";" VERSION_${VERSION}_TRIMMED ${VERSION_${VERSION}_TRIMMED})
+              list(LENGTH VERSION_${VERSION}_TRIMMED N_${VERSION})
+              if(${VERSION} STREQUAL "INSTALLED")
+                while(N_INSTALLED GREATER N_OPERAND)
+                  list(REMOVE_AT VERSION_INSTALLED_TRIMMED -1)
+                  list(LENGTH VERSION_INSTALLED_TRIMMED N_INSTALLED)
+                endwhile()
+              endif()
+              list(REMOVE_AT VERSION_${VERSION}_TRIMMED -1)
+              list(JOIN VERSION_${VERSION}_TRIMMED "." VERSION_${VERSION}_TRIMMED)
+            endforeach()
+            if(NOT VERSION_INSTALLED_TRIMMED VERSION_EQUAL VERSION_OPERAND_TRIMMED)
+              list(APPEND REQ_RESULT "${VERSION_INSTALLED} does not approximately match ${VERSION_OPERAND}")
+            endif()
+          endif()
+        elseif(VERSION_OPERATOR STREQUAL "<")
+          # strictly lower
+          if(NOT VERSION_INSTALLED VERSION_LESS VERSION_OPERAND)
+            list(APPEND REQ_RESULT "${VERSION_INSTALLED} is not lower than ${VERSION_OPERAND}")
+          endif()
+        elseif(VERSION_OPERATOR STREQUAL "<=")
+          # lower or equal
+          if(NOT VERSION_INSTALLED VERSION_LESS_EQUAL VERSION_OPERAND)
+            list(APPEND REQ_RESULT "${VERSION_INSTALLED} is not lower or equal than ${VERSION_OPERAND}")
+          endif()
+        endif()
+      endforeach()
+    endif()
+
+    if(REQ_RESULT)
+      list(JOIN REQ_RESULT " and " REQ_RESULT)
       message(
         NOTICE
-        "Conanfile: Conan version mismatch (got ${CONAN_VERSION_INSTALLED}, expects ${CONANFILE_CONAN_MIN_VERSION})."
+        "Conanfile: Conan version requirement (${CONANFILE_CONAN_VERSION}) not met: ${REQ_RESULT}"
       )
       unset(CONANFILE_CONAN_CMD CACHE)
     else()
       if (${CONANFILE_CONAN_CMD} STREQUAL "conan")
         message(
           STATUS
-          "Conanfile: system conan (version ${CONAN_VERSION_INSTALLED})"
+          "Conanfile: Using system conan (version ${VERSION_INSTALLED})"
         )
       else()
         message(
           STATUS
-          "Conanfile: Using conan from ${CONANFILE_CONAN_CMD} (version ${CONAN_VERSION_INSTALLED})"
+          "Conanfile: Using conan from ${CONANFILE_CONAN_CMD} (version ${VERSION_INSTALLED})"
         )
       endif()
     endif()
   else()
     message(
       NOTICE
-      "Conanfile: Could not extract conan version from \"${CONANFILE_CONAN_CMD} --version\" (\"${CONAN_VERSION_INSTALLED}\")."
+      "Conanfile: Could not extract conan version from \"${CONANFILE_CONAN_CMD} --version\" (\"${VERSION_INSTALLED}\")."
     )
     unset(CONANFILE_CONAN_CMD CACHE)
 
