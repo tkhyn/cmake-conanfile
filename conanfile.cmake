@@ -303,14 +303,10 @@ function(_conanfile_setup)
     execute_process(
       COMMAND "${PYTHON_EXECUTABLE}" -m venv "${VENV_DIR}"
       RESULT_VARIABLE VENV_CREATE_RESULT
-      OUTPUT_VARIABLE VENV_CREATE_OUTPUT
-      ERROR_VARIABLE VENV_CREATE_ERROR
     )
     if(NOT ${VENV_CREATE_RESULT} STREQUAL "0")
       message(FATAL_ERROR
-        "Conanfile: Virtual environment creation failed. Return code was '${VENV_CREATE_RESULT}':\n"
-        "${VENV_CREATE_ERROR}\n\n"
-        "Full output: ${VENV_CREATE_OUTPUT}"
+        "Conanfile: Virtual environment creation failed. Return code was '${VENV_CREATE_RESULT}'"
       )
     endif()
 
@@ -348,14 +344,10 @@ function(_conanfile_setup)
   execute_process(
     COMMAND ${VENV_BIN_DIR}/pip install ${PIP_INSTALL_CONAN} --force-reinstall
     RESULT_VARIABLE PIP_INSTALL_RESULT
-    OUTPUT_VARIABLE PIP_INSTALL_OUTPUT
-    ERROR_VARIABLE PIP_INSTALL_ERROR
   )
   if(NOT ${PIP_INSTALL_RESULT} STREQUAL "0")
     message(FATAL_ERROR
-      "Conanfile: Conan installation failed. Return code was '${PIP_INSTALL_RESULT}':\n"
-      "${PIP_INSTALL_ERROR}\n\n"
-      "Full output: ${PIP_INSTALL_OUTPUT}"
+      "Conanfile: Conan installation failed. Return code was '${PIP_INSTALL_RESULT}'"
     )
   endif()
 
@@ -721,14 +713,14 @@ function(_conanfile_detect_build_settings DETECTED_SETTINGS)
   execute_process(
     COMMAND ${CMAKE_COMMAND} -E env ${CONANFILE_CONAN_CMD} profile detect --name ${PROFILE_NAME} --force
     RESULT_VARIABLE PROFILE_DETECT_RESULT
-    OUTPUT_VARIABLE PROFILE_DETECT_OUTPUT
+    OUTPUT_VARIABLE PROFILE_DETECT_OUTPUT ECHO_OUTPUT_VARIABLE
     ERROR_VARIABLE PROFILE_DETECT_ERROR
   )
   if (NOT ${PROFILE_DETECT_RESULT} STREQUAL "0")
     message(FATAL_ERROR
       "Conanfile: Conan profile detection failed. Return code was '${PROFILE_DETECT_RESULT}':\n"
       "${PROFILE_DETECT_ERROR}\n\n"
-      "Full output: ${PROFILE_DETECT_OUTPUT}"
+      "Command output: ${PROFILE_DETECT_OUTPUT}"
     )
   endif()
 
@@ -742,7 +734,7 @@ function(_conanfile_detect_build_settings DETECTED_SETTINGS)
     message(FATAL_ERROR
       "Conanfile: Conan profile path retrieval failed. Return code was '${PROFILE_PATH_RESULT}':\n"
       "${PROFILE_PATH_ERROR}\n\n"
-      "Full output: ${PROFILE_PATH_OUTPUT}"
+      "Command output: ${PROFILE_PATH_OUTPUT}"
     )
   endif()
 
@@ -907,16 +899,12 @@ function(_conanfile)
     execute_process(
       COMMAND ${CMAKE_COMMAND} -E env ${CONANFILE_CONAN_CMD} ${CONANFILE_INSTALL_ARGS}
       RESULT_VARIABLE CONANFILE_INSTALL_RESULT
-      OUTPUT_VARIABLE CONANFILE_INSTALL_OUTPUT
-      ERROR_VARIABLE CONANFILE_INSTALL_ERROR
       WORKING_DIRECTORY ${CONANFILE_OUTPUT_DIR}
     )
 
     if(NOT ${CONANFILE_INSTALL_RESULT} STREQUAL "0")
       message(FATAL_ERROR
-        "Conanfile: Conan install failed. Return code was '${CONANFILE_INSTALL_RESULT}':\n"
-        "${CONANFILE_INSTALL_ERROR}\n\n"
-        "Full output: ${CONANFILE_INSTALL_OUTPUT}"
+        "Conanfile: Conan install failed. Return code was '${CONANFILE_INSTALL_RESULT}'"
       )
     endif()
 
