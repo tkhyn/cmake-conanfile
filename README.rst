@@ -76,16 +76,29 @@ Setup
 The behaviour of ``cmake-conanfile`` can be customised using optional cmake variables, that must be
 defined before the call to ``include(conanfile)``.
 
+CONANFILE_CONAN
+   Can be ``LOCAL``, ``AUTO`` (default) or ``SYSTEM``:
+
+   - If set to ``LOCAL``, ``cmake-conanfile`` will not consider any system-wide Conan installation
+     and install a local conan and local conan packages (re-used for all builds, but not shared
+     with other projects in the system)
+   - If set to ``AUTO``, ``cmake-conanfile`` will try to find a system-wide Conan installation
+     and will use it if it satisfies the version requirements. If not, it will install a local
+     conan and local packages as if ``LOCAL`` was selected.
+   - If set to ``SYSTEM``, ``cmake-conanfile`` will try to find a system-wide Conan installation
+     and throw an error if it can't or if the installed version doesn't match the version
+     requirements.
+
 CONANFILE_CONAN_VERSION = ~=2.0
    The version requirement of Conan, `pip-style <https://pip.pypa.io/en/stable/reference/requirement-specifiers/>`_.
-   If Conan is installed system-wide and meets the version requirements, it will use it.
-   Otherwise the latest available version will be installed in a virtual environment.
+   Combined with ``CONANFILE_CONAN`` to determine if a local conan needs to be installed.
 
 CONANFILE_LOCAL_CONAN_HOME
    The path to the directory that will contain the virtual environment and the local conan home,
-   if a local conan installation is needed. All invocations to the main `conanfile()` function
-   within the scope of the CMake project will use the same virtual environment, conan version and
-   conan home folder. Defaults to ``${PROJECT_SOURCE_DIR}/.conan``.
+   if a local conan gets installed (which depends on ``CONANFILE_CONAN_VERSION`` and
+   ``CONANFILE_CONAN``). All invocations to the main `conanfile()` function within the
+   scope of the CMake project will use the same virtual environment, conan version and conan home
+   folder. Defaults to ``${PROJECT_SOURCE_DIR}/.conan``.
 
 .. warning::
    If multiple OSes use the same working tree (for example building from WSL on Windows),

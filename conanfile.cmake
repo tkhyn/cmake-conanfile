@@ -36,40 +36,103 @@ cmake_minimum_required(VERSION 3.20)
 
 function(_check_conan)
 
-  if (NOT DEFINED CONANFILE_CONAN_CMD)
-    # Try system-wide conan
-    set(CONANFILE_CONAN_CMD "conan" CACHE INTERNAL "Conan executable for conanfile module")
+  # extract cached variables for convenience
+  set(CONAN_CMD ${CONANFILE_CONAN_CMD})
+  set(CONAN_MODE ${CONANFILE_CONAN})
+  if (NOT CONAN_MODE)
+    set(CONAN_MODE AUTO)
   endif()
 
-  # conan was found, check that the version matches the requirement
-  execute_process(
-    COMMAND ${CMAKE_COMMAND} -E env ${CONANFILE_CONAN_CMD} --version
-    RESULT_VARIABLE VERSION_RESULT
-    OUTPUT_VARIABLE VERSION_INSTALLED
-    ERROR_VARIABLE VERSION_ERROR
-  )
-
-  if(NOT VERSION_RESULT STREQUAL "0")
-    message(NOTICE "Conanfile: Conan not found (tried '${CONANFILE_CONAN_CMD}')")
-    unset(CONANFILE_CONAN_CMD CACHE)
-    return()
-  endif()
-
-  if (VERSION_INSTALLED MATCHES ".*Conan version ([0-9]+\\.[0-9]+\\.[0-9]+)[\\s\\r\\n]*")
-    set(VERSION_INSTALLED ${CMAKE_MATCH_1})
-
-    # sanity check
-    if(VERSION_INSTALLED VERSION_LESS "2.0.0")
-      message(
-        FATAL_ERROR
-        "Conanfile: incorrect conan version (${VERSION_INSTALLED}). cmake-conanfile only works with conan 2"
-      )
+  if (NOT CONAN_CMD)
+    if(CONAN_MODE STREQUAL LOCAL)
+      # Conan not found yet, do not bother trying with system conan as we'll
+      # have to set up a local conan by configuration
+      message(NOTICE "Conanfile: Local conan not detected with CONANFILE_CONAN set to LOCAL")
+      return()
     endif()
 
+    # Try system-wide conan
+    set(CONAN_CMD "conan")
+  elseif(CONAN_CMD STREQUAL "conan")
+    # Currently using system conan - check if we should switch to local
+    if (CONAN_MODE STREQUAL LOCAL)
+      # we were using system conan but switched to local
+      message(NOTICE "Conanfile: Switching from system to local conan because CONANFILE_CONAN was set to LOCAL.")
+      unset(CONANFILE_CONAN_CMD CACHE)
+      return()
+    endif()
+  else()
+    # Currently using local conan - check if we should (try to) switch to system
+    if (CONAN_MODE STREQUAL SYSTEM)
+      # we were using local conan but just switched to system
+      message(NOTICE "Conanfile: Switching from local to system conan because CONANFILE_CONAN was set to SYSTEM.")
+      set(CONAN_CMD "conan")
+    elseif(CONAN_MODE STREQUAL AUTO)
+      # CONAN_MODE is AUTO
+      message(NOTICE "Conanfile: Currently using local conan but checking if local is available ")
+      set(CONAN_CMD "conan")
+    endif()
+  endif()
+
+  # test current conan and extract version if it works
+  while(TRUE)
+    execute_process(
+      COMMAND ${CMAKE_COMMAND} -E env ${CONAN_CMD} --version
+      RESULT_VARIABLE VERSION_RESULT
+      OUTPUT_VARIABLE VERSION_INSTALLED
+      ERROR_VARIABLE VERSION_ERROR
+    )
+
+    if(VERSION_RESULT STREQUAL "0" AND VERSION_INSTALLED MATCHES ".*Conan version ([0-9]+\\.[0-9]+\\.[0-9]+)[\\s\\r\\n]*")
+      set(CONAN_FOUND TRUE)
+    endif()
+
+    if(NOT CONAN_FOUND)
+      # conan --version failed or could not parse result
+      if (CONAN_MODE STREQUAL AUTO AND CONAN_CMD STREQUAL "conan" AND CONANFILE_CONAN_CMD)
+        # if we are here in auto mode and system conan isn't found
+        # and there was a previous local conan command, try it
+        set(CONAN_CMD ${CONANFILE_CONAN_CMD})
+        continue()
+      endif()
+
+      # otherwise, we don't have a fallback option and need to look for another (probably local) conan
+      list(GET CONAN_CMD -1 CONANFILE_CONAN_CMD_FOR_MSG)
+      if (VERSION_RESULT STREQUAL "0")
+        message(NOTICE "Conanfile: Conan not found (tried '${CONANFILE_CONAN_CMD_FOR_MSG}')")
+      else()
+        message(
+          NOTICE
+          "Conanfile: Could not extract conan version from \"${CONANFILE_CONAN_CMD_FOR_MSG} (got \"${VERSION_INSTALLED}\")."
+        )
+      endif()
+      unset(CONANFILE_CONAN_CMD CACHE)
+
+      if(CONAN_CMD STREQUAL "conan" AND CONAN_MODE STREQUAL SYSTEM)
+        # We're in a dead end
+        message(FATAL_ERROR
+          "Conanfile: Conan not found in system and CONANFILE_CONAN is set to SYSTEM.\n"
+          "Please install Conan on your system or set CONANFILE_CONAN to LOCAL or AUTO."
+        )
+      endif()
+
+      return()
+    endif()
+
+    # we now have a valid version number, check if it matches the requirements
+    set(VERSION_INSTALLED ${CMAKE_MATCH_1})
+
+    # requirements results
     set(REQ_RESULT)
+
     set(VERSION_REQUIREMENTS ${CONANFILE_CONAN_VERSION})
     if (NOT VERSION_REQUIREMENTS)
       set(VERSION_REQUIREMENTS ~=2.0)
+    endif()
+
+    # sanity check to exclude conan 1
+    if(VERSION_INSTALLED VERSION_LESS "2.0.0")
+      list(APPEND REQ_RESULT "invalid conan version (${VERSION_INSTALLED}). cmake-conanfile only works with conan 2")
     endif()
 
     string(REPLACE " " "" VERSION_REQUIREMENTS ${VERSION_REQUIREMENTS})
@@ -155,39 +218,73 @@ function(_check_conan)
       endforeach()
     endif()
 
-    if(REQ_RESULT)
-      list(JOIN REQ_RESULT " and " REQ_RESULT)
+    if(NOT REQ_RESULT)
+      # All good, installed version meets requirements, we can exit the check loop !
+      break()
+    endif()
+
+    # prepare requirement issues list for reporting
+    list(JOIN REQ_RESULT " and " REQ_RESULT)
+
+    # in auto mode, we may have another go with local conan
+    if (CONAN_MODE STREQUAL AUTO AND CONAN_CMD STREQUAL "conan" AND CONANFILE_CONAN_CMD MATCHES "^CONAN_HOME=.+")
+      # if we are here in auto mode and system conan isn't found
+      # and there was a previous local conan command, try it
+      set(CONAN_CMD ${CONANFILE_CONAN_CMD})
+      list(GET CONAN_CMD -1 CONANFILE_CONAN_CMD_FOR_MSG)
+      message(
+        NOTICE "Conanfile: found local conan but it doesn't satisfy the requirements (${REQ_RESULT}). Checking ${CONANFILE_CONAN_CMD_FOR_MSG}."
+      )
+      continue()
+    endif()
+
+    # otherwise, we don't have a fallback option and will need to look for another (probably local)
+    # conan, but first, the user needs a report
+
+    if (CONAN_MODE STREQUAL SYSTEM)
+      # Can't go with local conan. Fail the configuration
+      message(
+        FATAL_ERROR
+        "Conanfile: Conan version requirement (${CONANFILE_CONAN_VERSION}) not met for system conan: ${REQ_RESULT}\n"
+        "Either:\n"
+        "  - update system conan to a version that meets the requirement.\n"
+        "  - relax the conan version requirements\n"
+        "  - set CONANFILE_CONAN to AUTO or LOCAL\n"
+      )
+    elseif(CONAN_MODE STREQUAL AUTO AND CONAN_CMD STREQUAL "conan")
+      # Go with local conan and warn the user
+      message(
+        WARNING
+        "Conanfile: Conan version requirement (${CONANFILE_CONAN_VERSION}) not met on system conan: ${REQ_RESULT}\n"
+        "Switching to a local conan installation as CONANFILE_CONAN is set to AUTO.\n"
+      )
+    else()
       message(
         NOTICE
-        "Conanfile: Conan version requirement (${CONANFILE_CONAN_VERSION}) not met: ${REQ_RESULT}"
+        "Conanfile: Current conan version requirement (${CONANFILE_CONAN_VERSION}) not met: ${REQ_RESULT}\n"
+        "Reinstalling local conan.\n"
       )
-      unset(CONANFILE_CONAN_CMD CACHE)
-    else()
-      if ("${CONANFILE_CONAN_CMD}" STREQUAL "conan")
-        message(
-          STATUS
-          "Conanfile: Using system conan (version ${VERSION_INSTALLED})"
-        )
-      else()
-        list(GET CONANFILE_CONAN_CMD -1 CONANFILE_CONAN_CMD_FOR_MSG)
-        list(GET CONANFILE_CONAN_CMD -2 CONANFILE_CONAN_HOME)
-        message(
-          STATUS
-          "Conanfile: Using conan from ${CONANFILE_CONAN_CMD_FOR_MSG} (version ${VERSION_INSTALLED}) "
-          "with ${CONANFILE_CONAN_HOME}"
-        )
-      endif()
     endif()
-  else()
-    list(GET CONANFILE_CONAN_CMD -1 CONANFILE_CONAN_CMD_FOR_MSG)
-    message(
-      NOTICE
-      "Conanfile: Could not extract conan version from \"${CONANFILE_CONAN_CMD_FOR_MSG} --version\"
-      (\"${VERSION_INSTALLED}\")."
-    )
     unset(CONANFILE_CONAN_CMD CACHE)
+    return()
+  endwhile()
 
+  if ("${CONAN_CMD}" STREQUAL "conan")
+    message(
+      STATUS
+      "Conanfile: Using system conan (version ${VERSION_INSTALLED})"
+    )
+  else()
+    list(GET CONAN_CMD -1 CONANFILE_CONAN_CMD_FOR_MSG)
+    list(GET CONAN_CMD -2 CONANFILE_CONAN_HOME)
+    message(
+      STATUS
+      "Conanfile: Using conan from ${CONANFILE_CONAN_CMD_FOR_MSG} (version ${VERSION_INSTALLED}) "
+      "with ${CONANFILE_CONAN_HOME}"
+    )
   endif()
+
+  set(CONANFILE_CONAN_CMD ${CONAN_CMD} CACHE INTERNAL "Conan executable for conanfile module")
 
 endfunction()
 
@@ -215,8 +312,21 @@ endfunction()
 
 function(_conanfile_setup)
 
-  if(DEFINED CONANFILE_LOCAL_CONAN_HOME AND DEFINED CONANFILE_CONAN_CMD AND
-    NOT CONANFILE_CONAN_CMD MATCHES "^CONAN_HOME=${CONANFILE_LOCAL_CONAN_HOME}.+"
+  if (DEFINED CONANFILE_CONAN AND NOT CONANFILE_CONAN MATCHES "^(SYSTEM|AUTO|LOCAL)$")
+    message(
+      FATAL_ERROR
+      "Conanfile: Invalid value for CONANFILE_CONAN: \"${CONANFILE_CONAN}\". Expects SYSTEM, AUTO or LOCAL."
+    )
+  elseif(CONANFILE_CONAN STREQUAL SYSTEM AND DEFINED CONANFILE_LOCAL_CONAN_HOME)
+    message(
+      NOTICE
+      "Conanfile: CONANFILE_LOCAL_CONAN_HOME is not used when CONANFILE_CONAN is set to SYSTEM."
+    )
+  endif()
+
+  if(NOT CONANFILE_CONAN STREQUAL "SYSTEM" AND
+    DEFINED CONANFILE_LOCAL_CONAN_HOME AND CONANFILE_CONAN_CMD AND
+    NOT CONANFILE_CONAN_CMD MATCHES "^(conan|CONAN_HOME=${CONANFILE_LOCAL_CONAN_HOME}.+)"
   )
     message(NOTICE "Conanfile: CONANFILE_LOCAL_CONAN_HOME has changed. Reinstalling conan.")
     unset(CONANFILE_CONAN_CMD CACHE)
