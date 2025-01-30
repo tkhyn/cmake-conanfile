@@ -119,8 +119,8 @@ Usage
 
 Once the module has been loaded, the only interface is the ``conanfile()`` function.
 
-This function will invoke ``conan`` against a specified conan file (by default it will be
-``./conanfile.py``).
+This function will invoke ``conan`` against a specified conan file (by default the ``conanfile.py``
+in the current source directory).
 
 .. code-block:: cmake
 
@@ -156,15 +156,76 @@ are set.
 
 .. note::
 
-   Note: This means that it is also possible to run standalone `conan` against that `conanfile.py`. The
-   default options will then be used.
+   Thanks to the unobtrusive way ``cmake-conanfile`` deals with forwarding CMake options to
+   conan, it is also possible to run standalone `conan` against that `conanfile.py`.
+   The default options will then be used.
 
-conanfile parameters
---------------------
+``conanfile()`` function parameters
+-----------------------------------
 
 CONANFILE
    The path to the conanfile to run, relative to the current list directory. Defaults to
    ``conanfile.py``
 
 OPTIONS
-   A list of options that will be forwarded to the conanfile.py
+   A list of options ``key=value`` (``value`` must be understandable by python) that will be
+   forwarded to the conanfile.py
+
+
+Troubleshooting
+===============
+
+``cmake-conanfile`` tries to avoid re-creating its virtual environment and running ``conan
+install`` when it's not needed to save time. However, some system changes (e.g. deletion of a conan
+package previously installed and required) can break things.
+
+A heavy handed way to resolve this is to wipe the build folder and start clean. This will work,
+but for large codebases this can be fairly expensive.
+
+Problems with the ``conan`` command
+-----------------------------------
+
+This can happen if conan has been installed, uninstalled, or reinstalled on the system or if the
+local virtual environment has been corrupted.
+
+First, try to remove the value ``CONANFILE_CONAN_CMD`` from the CMake cache (in CMakeCache.txt)
+and re-run CMake.
+
+If this doesn't work and a local conan home / virtual environment are used (see
+``CONANFILE_CONAN`` variable), delete the ``${CONANFILE_LOCAL_CONAN_HOME}/venv`` directory and
+re-run CMake. This will re-create the virtual environment
+
+Problems with ``conan install``
+-------------------------------
+
+On a few rare occasions, the conan installation itself will fail. Although there is a
+mechanism in place to ensure that it re-runs fully and cleanly when needed, sometimes it cannot
+detect that something else has changed on the host system. The most common causes include bugs
+in recipes or deletion of packages in the system conan repository.
+
+To force re-running a specific ``conan install``, navigate to the relevant binary directory in the
+build folder - the one corresponding to the ``CMakeLists.txt`` - and find the folder that is named
+after the conanfile that ``conan install`` has run against (it will generally be ``conanfile.py``
+unless you have used the ``CONANFILE`` argument of the ``conanfile()`` function). Delete the
+``_hash`` file in that conanfile folder and rerun cmake.
+
+Other problems
+--------------
+
+Please report any problem, with steps to reproduce it at
+https://github.com/tkhyn/cmake-conanfile/issues
+
+And even better, solve it and create a pull request! If you do so, please use the
+`Conventional Commits <https://www.conventionalcommits.org/en/v1.0.0/#specification>`_ format for
+your commit messages, with the following base types:
+
+- **fix**: bug fix
+- **feat**: new feature
+- **enh**: enhancement of an existing feature
+- **perf**: code change that improves performance
+- **refactor**: code change that neither fixes a bug or adds a feature (clean-ups, warning fixes ...)
+- **style**: code changes that do not affect the meaning of the code (white-space, formatting,
+missing semi-colons ...)
+- **doc**: Documentation only changes
+- **test**: Adding / changing / fixing tests
+- **chore**: Anything else (general maintenance, build process, auxiliary tools / libraries ...)
