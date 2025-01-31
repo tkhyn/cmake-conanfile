@@ -797,7 +797,7 @@ function(_conanfile_detect_host_settings DETECTED_SETTINGS)
       set(CONAN_COMPILER_TOOLSET ${CMAKE_VS_PLATFORM_TOOLSET})
     endif()
   else()
-    message(FATAL_ERROR "Conanfile: compiler setup not recognized")
+    message(FATAL_ERROR "Conanfile: Compiler setup not recognized")
   endif()
 
   set(ARGUMENTS_PROFILE_AUTO arch build_type compiler compiler.version
@@ -896,7 +896,7 @@ function(_conanfile)
 
   message(
     STATUS
-    "Conanfile: generating ${CONANFILE_OUTPUT_PATH} from ${CONANFILE_TEMPLATE_FILE}"
+    "Conanfile: Generating ${CONANFILE_OUTPUT_PATH} from ${CONANFILE_TEMPLATE_FILE}"
   )
 
   # insert CMAKE_OPTIONS modification code in conanfile
@@ -1024,7 +1024,7 @@ function(_conanfile)
     set(TOOLCHAIN_PATHS ${CONANFILE_OUTPUT_DIR}/conan_toolchain_paths.cmake)
     message(
       STATUS
-      "Conanfile: extracting conan packages paths from ${TOOLCHAIN} into ${TOOLCHAIN_PATHS}"
+      "Conanfile: Extracting conan packages paths from ${TOOLCHAIN} into ${TOOLCHAIN_PATHS}"
     )
 
     # Only extract find_path and pkg_config blocks from conan toolchain
@@ -1038,7 +1038,7 @@ function(_conanfile)
     # extract header with include guard
     string(FIND "${TOOLCHAIN_STR}" "##########" TOOLCHAIN_HEADER_END)
     if(TOOLCHAIN_HEADER_END EQUAL -1)
-      message(FATAL_ERROR "Conanfile: could not find header block in ${TOOLCHAIN}")
+      message(FATAL_ERROR "Conanfile: Could not find header block in ${TOOLCHAIN}")
     endif()
     string(SUBSTRING "${TOOLCHAIN_STR}" "0" "${TOOLCHAIN_HEADER_END}" TOOLCHAIN_PATHS_STR)
 
@@ -1049,7 +1049,7 @@ function(_conanfile)
       set(BLOCK_HEADER "########## '${BLOCK}' block #############")
       string(REGEX MATCH "${BLOCK_HEADER}.*" TOOLCHAIN_${BLOCK}_BLOCK "${TOOLCHAIN_STR}")
       if (NOT TOOLCHAIN_${BLOCK}_BLOCK)
-        message(FATAL_ERROR "Conanfile: could not find '${BLOCK}' block in ${TOOLCHAIN}")
+        message(FATAL_ERROR "Conanfile: Could not find '${BLOCK}' block in ${TOOLCHAIN}")
       endif()
       string(LENGTH "${BLOCK_HEADER}" BLOCK_HEADER_LENGTH)
       string(SUBSTRING "${TOOLCHAIN_${BLOCK}_BLOCK}" "${BLOCK_HEADER_LENGTH}" -1 TOOLCHAIN_${BLOCK}_BLOCK)
