@@ -395,9 +395,9 @@ function(_conanfile_setup)
       elseif(${PYTHON_EXECUTABLE} MATCHES ".*/shims/python.*")
         # this is a python executable provided by pyenv, find actual python executable by executing
         # `pyenv which python`
-        find_program(PYENV_EXECUTABLE NAMES pyenv)
+        find_program(PYENV_EXECUTABLE NAMES pyenv NO_CACHE)
         if(CMAKE_HOST_WIN32) # Used instead of WIN32 for cross-compiling
-          find_program(BASH_EXECUTABLE NAMES bash)
+          find_program(BASH_EXECUTABLE NAMES bash NO_CACHE)
           execute_process(COMMAND "${BASH_EXECUTABLE}" "${PYENV_EXECUTABLE}" which python OUTPUT_VARIABLE PYTHON_EXECUTABLE
             OUTPUT_STRIP_TRAILING_WHITESPACE)
         else()
