@@ -56,7 +56,7 @@ Alternatively, the file can be downloaded directly from this repository using th
 .. code-block:: cmake
 
    # Download conanfile.cmake if needed
-   set(CMAKE_CONANFILE_VERSION 0.1a NO_CACHE)
+   set(CMAKE_CONANFILE_VERSION 0.0.2-alpha)
    set(CMAKE_CONANFILE_PATH "${PROJECT_BINARY_DIR}/conanfile_${CMAKE_CONANFILE_VERSION}.cmake")
    if(NOT EXISTS "${CMAKE_CONANFILE_PATH}")
      message(STATUS "Downloading conanfile.cmake from https://github.com/tkhyn/cmake-conanfile")
