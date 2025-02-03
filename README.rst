@@ -105,9 +105,9 @@ CONANFILE_LOCAL_CONAN_HOME
    `CONANFILE_LOCAL_CONAN_HOME` should be OS-dependent, as the conan configuration and virtual
    environments cannot be shared. You may for example have:
 
-   ```cmake
-   set(CONANFILE_LOCAL_CONAN_HOME "${PROJECT_SOURCE_DIR}/.conan/${CMAKE_SYSTEM_NAME}")
-   ```
+   .. code-block:: cmake
+
+      set(CONANFILE_LOCAL_CONAN_HOME "${PROJECT_SOURCE_DIR}/.conan/${CMAKE_SYSTEM_NAME}")
 
 CONANFILE_PYTHON_EXECUTABLE
    Defines the python executable to use to create the virtual environment. Generally passed as a
