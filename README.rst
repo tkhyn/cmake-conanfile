@@ -225,7 +225,7 @@ your commit messages, with the following base types:
 - **perf**: code change that improves performance
 - **refactor**: code change that neither fixes a bug or adds a feature (clean-ups, warning fixes ...)
 - **style**: code changes that do not affect the meaning of the code (white-space, formatting,
-missing semi-colons ...)
+  missing semi-colons ...)
 - **doc**: Documentation only changes
 - **test**: Adding / changing / fixing tests
 - **chore**: Anything else (general maintenance, build process, auxiliary tools / libraries ...)
