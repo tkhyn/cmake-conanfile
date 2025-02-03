@@ -1,7 +1,7 @@
 #
 # cmake-conanfile
 #
-# v 0.1.0
+# v 0.2.0
 # https://github.com/tkhyn/cmake-conanfile
 #
 # CMake wrapper for Conan 2
@@ -36,53 +36,255 @@ cmake_minimum_required(VERSION 3.20)
 
 function(_check_conan)
 
-  if (NOT DEFINED CONANFILE_CONAN_CMD)
+  # extract cached variables for convenience
+  set(CONAN_CMD ${CONANFILE_CONAN_CMD})
+  set(CONAN_MODE ${CONANFILE_CONAN})
+  if (NOT CONAN_MODE)
+    set(CONAN_MODE AUTO)
+  endif()
+
+  if (NOT CONAN_CMD)
+    if(CONAN_MODE STREQUAL LOCAL)
+      # Conan not found yet, do not bother trying with system conan as we'll
+      # have to set up a local conan by configuration
+      message(NOTICE "Conanfile: Local conan not detected with CONANFILE_CONAN set to LOCAL")
+      return()
+    endif()
+
     # Try system-wide conan
-    set(CONANFILE_CONAN_CMD conan CACHE INTERNAL "Conan executable for conanfile module")
-  endif()
-
-  # conan was found, check that the version matches the requirement
-  execute_process(
-    COMMAND ${CONANFILE_CONAN_CMD} --version
-    RESULT_VARIABLE CONAN_VERSION_RESULT
-    OUTPUT_VARIABLE CONAN_VERSION_INSTALLED
-  )
-
-  if(NOT CONAN_VERSION_RESULT STREQUAL "0")
-    message(NOTICE "Conanfile: Conan not found")
-    unset(CONANFILE_CONAN_CMD CACHE)
-    return()
-  endif()
-
-  if (CONAN_VERSION_INSTALLED MATCHES ".*Conan version ([0-9]+\\.[0-9]+\\.[0-9]+)[\\s\\r\\n]*")
-    set(CONAN_VERSION_INSTALLED ${CMAKE_MATCH_1})
-    if (DEFINED CONANFILE_CONAN_MIN_VERSION AND CONAN_VERSION_INSTALLED VERSION_LESS CONANFILE_CONAN_MIN_VERSION)
-      message(
-        NOTICE
-        "Conanfile: Conan version mismatch (got ${CONAN_VERSION_INSTALLED}, expects ${CONANFILE_CONAN_MIN_VERSION})."
-      )
+    set(CONAN_CMD "conan")
+  elseif(CONAN_CMD STREQUAL "conan")
+    # Currently using system conan - check if we should switch to local
+    if (CONAN_MODE STREQUAL LOCAL)
+      # we were using system conan but switched to local
+      message(NOTICE "Conanfile: Switching from system to local conan because CONANFILE_CONAN was set to LOCAL.")
       unset(CONANFILE_CONAN_CMD CACHE)
-    else()
-      if (${CONANFILE_CONAN_CMD} STREQUAL "conan")
-        message(
-          STATUS
-          "Conanfile: system conan (version ${CONAN_VERSION_INSTALLED})"
-        )
-      else()
-        message(
-          STATUS
-          "Conanfile: Using conan from ${CONANFILE_CONAN_CMD} (version ${CONAN_VERSION_INSTALLED})"
-        )
-      endif()
+      return()
     endif()
   else()
-    message(
-      NOTICE
-      "Conanfile: Could not extract conan version from \"${CONANFILE_CONAN_CMD} --version\" (\"${CONAN_VERSION_INSTALLED}\")."
-    )
-    unset(CONANFILE_CONAN_CMD CACHE)
-
+    # Currently using local conan - check if we should (try to) switch to system
+    if (CONAN_MODE STREQUAL SYSTEM)
+      # we were using local conan but just switched to system
+      message(NOTICE "Conanfile: Switching from local to system conan because CONANFILE_CONAN was set to SYSTEM.")
+      set(CONAN_CMD "conan")
+    elseif(CONAN_MODE STREQUAL AUTO)
+      # CONAN_MODE is AUTO
+      message(NOTICE "Conanfile: Currently using local conan but checking if local is available ")
+      set(CONAN_CMD "conan")
+    endif()
   endif()
+
+  # test current conan and extract version if it works
+  while(TRUE)
+    execute_process(
+      COMMAND ${CMAKE_COMMAND} -E env ${CONAN_CMD} --version
+      RESULT_VARIABLE VERSION_RESULT
+      OUTPUT_VARIABLE VERSION_INSTALLED
+      ERROR_VARIABLE VERSION_ERROR
+    )
+
+    if(VERSION_RESULT STREQUAL "0" AND VERSION_INSTALLED MATCHES ".*Conan version ([0-9]+\\.[0-9]+\\.[0-9]+)[\\s\\r\\n]*")
+      set(CONAN_FOUND TRUE)
+    endif()
+
+    if(NOT CONAN_FOUND)
+      # conan --version failed or could not parse result
+      if (CONAN_MODE STREQUAL AUTO AND CONAN_CMD STREQUAL "conan" AND CONANFILE_CONAN_CMD)
+        # if we are here in auto mode and system conan isn't found
+        # and there was a previous local conan command, try it
+        set(CONAN_CMD ${CONANFILE_CONAN_CMD})
+        continue()
+      endif()
+
+      # otherwise, we don't have a fallback option and need to look for another (probably local) conan
+      list(GET CONAN_CMD -1 CONANFILE_CONAN_CMD_FOR_MSG)
+      if (VERSION_RESULT STREQUAL "0")
+        message(NOTICE "Conanfile: Conan not found (tried '${CONANFILE_CONAN_CMD_FOR_MSG}')")
+      else()
+        message(
+          NOTICE
+          "Conanfile: Could not extract conan version from \"${CONANFILE_CONAN_CMD_FOR_MSG} (got \"${VERSION_INSTALLED}\")."
+        )
+      endif()
+      unset(CONANFILE_CONAN_CMD CACHE)
+
+      if(CONAN_CMD STREQUAL "conan" AND CONAN_MODE STREQUAL SYSTEM)
+        # We're in a dead end
+        message(FATAL_ERROR
+          "Conanfile: Conan not found in system and CONANFILE_CONAN is set to SYSTEM.\n"
+          "Please install Conan on your system or set CONANFILE_CONAN to LOCAL or AUTO."
+        )
+      endif()
+
+      return()
+    endif()
+
+    # we now have a valid version number, check if it matches the requirements
+    set(VERSION_INSTALLED ${CMAKE_MATCH_1})
+
+    # requirements results
+    set(REQ_RESULT)
+
+    set(VERSION_REQUIREMENTS ${CONANFILE_CONAN_VERSION})
+    if (NOT VERSION_REQUIREMENTS)
+      set(VERSION_REQUIREMENTS ~=2.0)
+    endif()
+
+    # sanity check to exclude conan 1
+    if(VERSION_INSTALLED VERSION_LESS "2.0.0")
+      list(APPEND REQ_RESULT "invalid conan version (${VERSION_INSTALLED}). cmake-conanfile only works with conan 2")
+    endif()
+
+    string(REPLACE " " "" VERSION_REQUIREMENTS ${VERSION_REQUIREMENTS})
+    string(REPLACE "," ";" VERSION_REQUIREMENTS ${VERSION_REQUIREMENTS})
+    list(LENGTH VERSION_REQUIREMENTS N_REQUIREMENTS)
+    if (N_REQUIREMENTS EQUAL 0)
+      message(
+        FATAL_ERROR
+        "Conanfile: No Conan version requirement defined in CONANFILE_CONAN_VERSION"
+      )
+    elseif(N_REQUIREMENTS GREATER 2)
+      message(
+        FATAL_ERROR
+        "Conanfile: Cannot have more than 2 version requirements defined in CONANFILE_CONAN_VERSION"
+      )
+    else()
+      foreach(VERSION_REQUIREMENT IN LISTS VERSION_REQUIREMENTS)
+        string(
+          REGEX MATCH "(==|>=|>|~=|<|<=)([0-9]+(\.[0-9]+(\.[0-9]+)?)?)"
+          VERSION_REQUIREMENT_MATCH ${VERSION_REQUIREMENT}
+        )
+        if(CMAKE_MATCH_COUNT LESS 2)
+          message(
+            FATAL_ERROR
+            "Conanfile: Could not parse version requirement '${VERSION_REQUIREMENT}'"
+          )
+        endif()
+        set(VERSION_OPERATOR ${CMAKE_MATCH_1})
+        set(VERSION_OPERAND ${CMAKE_MATCH_2})
+        if (VERSION_OPERATOR STREQUAL "==")
+          # exact match
+          if (NOT VERSION_INSTALLED VERSION_EQUAL VERSION_OPERAND)
+            list(APPEND REQ_RESULT "${VERSION_INSTALLED} does not match ${VERSION_OPERAND}")
+          endif()
+        elseif(VERSION_OPERATOR STREQUAL ">")
+          # strictly greater
+          if (NOT VERSION_INSTALLED VERSION_GREATER VERSION_OPERAND)
+            list(APPEND REQ_RESULT "${VERSION_INSTALLED} is not greater than ${VERSION_OPERAND}")
+          endif()
+        elseif(VERSION_OPERATOR STREQUAL ">=")
+          # greater or equal
+          if (NOT VERSION_INSTALLED VERSION_GREATER_EQUAL VERSION_OPERAND)
+            list(APPEND REQ_RESULT "${VERSION_INSTALLED} is not greater or equal than ${VERSION_OPERAND}")
+          endif()
+        elseif(VERSION_OPERATOR STREQUAL "~=")
+          # versions must match except the last specified number
+          if(NOT VERSION_INSTALLED VERSION_GREATER_EQUAL VERSION_OPERAND)
+            if (NOT VERSION_INSTALLED VERSION_GREATER_EQUAL VERSION_OPERAND)
+              list(APPEND REQ_RESULT "${VERSION_INSTALLED} is not greater or equal than ${VERSION_OPERAND}")
+            endif()
+          else()
+            # trim installed version string to make its length match the requirement
+            set(VERSION_INSTALLED_TRIMMED ${VERSION_INSTALLED})
+            set(VERSION_OPERAND_TRIMMED ${VERSION_OPERAND})
+            foreach(VERSION IN ITEMS OPERAND INSTALLED)
+              # remove the last version in each version string
+              string(REPLACE "." ";" VERSION_${VERSION}_TRIMMED ${VERSION_${VERSION}_TRIMMED})
+              list(LENGTH VERSION_${VERSION}_TRIMMED N_${VERSION})
+              if(${VERSION} STREQUAL "INSTALLED")
+                while(N_INSTALLED GREATER N_OPERAND)
+                  list(REMOVE_AT VERSION_INSTALLED_TRIMMED -1)
+                  list(LENGTH VERSION_INSTALLED_TRIMMED N_INSTALLED)
+                endwhile()
+              endif()
+              list(REMOVE_AT VERSION_${VERSION}_TRIMMED -1)
+              list(JOIN VERSION_${VERSION}_TRIMMED "." VERSION_${VERSION}_TRIMMED)
+            endforeach()
+            if(NOT VERSION_INSTALLED_TRIMMED VERSION_EQUAL VERSION_OPERAND_TRIMMED)
+              list(APPEND REQ_RESULT "${VERSION_INSTALLED} does not approximately match ${VERSION_OPERAND}")
+            endif()
+          endif()
+        elseif(VERSION_OPERATOR STREQUAL "<")
+          # strictly lower
+          if(NOT VERSION_INSTALLED VERSION_LESS VERSION_OPERAND)
+            list(APPEND REQ_RESULT "${VERSION_INSTALLED} is not lower than ${VERSION_OPERAND}")
+          endif()
+        elseif(VERSION_OPERATOR STREQUAL "<=")
+          # lower or equal
+          if(NOT VERSION_INSTALLED VERSION_LESS_EQUAL VERSION_OPERAND)
+            list(APPEND REQ_RESULT "${VERSION_INSTALLED} is not lower or equal than ${VERSION_OPERAND}")
+          endif()
+        endif()
+      endforeach()
+    endif()
+
+    if(NOT REQ_RESULT)
+      # All good, installed version meets requirements, we can exit the check loop !
+      break()
+    endif()
+
+    # prepare requirement issues list for reporting
+    list(JOIN REQ_RESULT " and " REQ_RESULT)
+
+    # in auto mode, we may have another go with local conan
+    if (CONAN_MODE STREQUAL AUTO AND CONAN_CMD STREQUAL "conan" AND CONANFILE_CONAN_CMD MATCHES "^CONAN_HOME=.+")
+      # if we are here in auto mode and system conan isn't found
+      # and there was a previous local conan command, try it
+      set(CONAN_CMD ${CONANFILE_CONAN_CMD})
+      list(GET CONAN_CMD -1 CONANFILE_CONAN_CMD_FOR_MSG)
+      message(
+        NOTICE "Conanfile: found local conan but it doesn't satisfy the requirements (${REQ_RESULT}). Checking ${CONANFILE_CONAN_CMD_FOR_MSG}."
+      )
+      continue()
+    endif()
+
+    # otherwise, we don't have a fallback option and will need to look for another (probably local)
+    # conan, but first, the user needs a report
+
+    if (CONAN_MODE STREQUAL SYSTEM)
+      # Can't go with local conan. Fail the configuration
+      message(
+        FATAL_ERROR
+        "Conanfile: Conan version requirement (${CONANFILE_CONAN_VERSION}) not met for system conan: ${REQ_RESULT}\n"
+        "Either:\n"
+        "  - update system conan to a version that meets the requirement.\n"
+        "  - relax the conan version requirements\n"
+        "  - set CONANFILE_CONAN to AUTO or LOCAL\n"
+      )
+    elseif(CONAN_MODE STREQUAL AUTO AND CONAN_CMD STREQUAL "conan")
+      # Go with local conan and warn the user
+      message(
+        WARNING
+        "Conanfile: Conan version requirement (${CONANFILE_CONAN_VERSION}) not met on system conan: ${REQ_RESULT}\n"
+        "Switching to a local conan installation as CONANFILE_CONAN is set to AUTO.\n"
+      )
+    else()
+      message(
+        NOTICE
+        "Conanfile: Current conan version requirement (${CONANFILE_CONAN_VERSION}) not met: ${REQ_RESULT}\n"
+        "Reinstalling local conan.\n"
+      )
+    endif()
+    unset(CONANFILE_CONAN_CMD CACHE)
+    return()
+  endwhile()
+
+  if ("${CONAN_CMD}" STREQUAL "conan")
+    message(
+      STATUS
+      "Conanfile: Using system conan (version ${VERSION_INSTALLED})"
+    )
+  else()
+    list(GET CONAN_CMD -1 CONANFILE_CONAN_CMD_FOR_MSG)
+    list(GET CONAN_CMD -2 CONANFILE_CONAN_HOME)
+    message(
+      STATUS
+      "Conanfile: Using conan from ${CONANFILE_CONAN_CMD_FOR_MSG} (version ${VERSION_INSTALLED}) "
+      "with ${CONANFILE_CONAN_HOME}"
+    )
+  endif()
+
+  set(CONANFILE_CONAN_CMD ${CONAN_CMD} CACHE INTERNAL "Conan executable for conanfile module")
 
 endfunction()
 
@@ -93,11 +295,15 @@ function(_check_venv)
     return()
   endif()
 
-  execute_process(COMMAND ${CONANFILE_VENV_PYTHON_CMD} --version RESULT_VARIABLE CONANFILE_PYTHON_CMD)
+  execute_process(
+    COMMAND ${CONANFILE_VENV_PYTHON_CMD} --version
+    RESULT_VARIABLE CONANFILE_PYTHON_CMD
+    OUTPUT_VARIABLE CONANFILE_PYTHON_VERSION
+  )
 
   if(NOT CONANFILE_PYTHON_CMD EQUAL 0)
     message(
-      NOTICE "Conanfile: Invalid python executable found in virtual environment"
+      NOTICE "Conanfile: Invalid virtual environment or python executable (tried ${CONANFILE_VENV_PYTHON_CMD})"
     )
     unset(CONANFILE_VENV_PYTHON_CMD CACHE)
   endif()
@@ -106,11 +312,31 @@ endfunction()
 
 function(_conanfile_setup)
 
-  # We may already be setup - check this first
-  _check_conan()
-  if (DEFINED CONANFILE_CONAN_CMD)
-    # Conan found and valid, no need to do anything
-    return()
+  if (DEFINED CONANFILE_CONAN AND NOT CONANFILE_CONAN MATCHES "^(SYSTEM|AUTO|LOCAL)$")
+    message(
+      FATAL_ERROR
+      "Conanfile: Invalid value for CONANFILE_CONAN: \"${CONANFILE_CONAN}\". Expects SYSTEM, AUTO or LOCAL."
+    )
+  elseif(CONANFILE_CONAN STREQUAL SYSTEM AND DEFINED CONANFILE_LOCAL_CONAN_HOME)
+    message(
+      NOTICE
+      "Conanfile: CONANFILE_LOCAL_CONAN_HOME is not used when CONANFILE_CONAN is set to SYSTEM."
+    )
+  endif()
+
+  if(NOT CONANFILE_CONAN STREQUAL "SYSTEM" AND
+    DEFINED CONANFILE_LOCAL_CONAN_HOME AND CONANFILE_CONAN_CMD AND
+    NOT CONANFILE_CONAN_CMD MATCHES "^(conan|CONAN_HOME=${CONANFILE_LOCAL_CONAN_HOME}.+)"
+  )
+    message(NOTICE "Conanfile: CONANFILE_LOCAL_CONAN_HOME has changed. Reinstalling conan.")
+    unset(CONANFILE_CONAN_CMD CACHE)
+  else()
+    # We may already be setup - check this first
+    _check_conan()
+    if(DEFINED CONANFILE_CONAN_CMD)
+      # Conan found and valid, no need to do anything
+      return()
+    endif()
   endif()
 
   # Conan not found, wrong version or incorrectly installed, (re)install
@@ -118,17 +344,39 @@ function(_conanfile_setup)
   # Check that we have a functional virtual environment and python executable
   _check_venv()
 
-  if (NOT DEFINED CONANFILE_VENV_PYTHON_CMD)
+  # Figure out default virtual environment path if not user-defined
+  if (DEFINED CONANFILE_LOCAL_CONAN_HOME)
+    # User-defined conan home
+    set(CONAN_HOME "${CONANFILE_LOCAL_CONAN_HOME}")
+  else()
+    # By default, the conan home is in the project source directory, so that all conan packages
+    # for the project can be shared among builds
+    set(CONAN_HOME "${PROJECT_SOURCE_DIR}/.conan")
+  endif()
+  if (NOT EXISTS "${CONAN_HOME}")
+    file(MAKE_DIRECTORY "${CONAN_HOME}")
+  endif()
+  # This will set CONAN_HOME when conan is run
+  set(SET_CONAN_HOME "CONAN_HOME=${CONAN_HOME}")
+
+  set(REBUILD_VENV FALSE)
+  if (DEFINED CONANFILE_VENV_PYTHON_CMD)
+    # Check if conan home has changed since last time, if so, rebuild venv
+    if (NOT "${CONANFILE_VENV_PYTHON_CMD}" MATCHES "${CONAN_HOME}/venv/(Scripts/python.exe|bin/python)")
+      set(REBUILD_VENV TRUE)
+    endif()
+  else()
+    set(REBUILD_VENV TRUE)
+  endif()
+
+  if (REBUILD_VENV)
     # Issue with virtual environment's python, this needs to be reinstalled
 
-    # Figure out default virtual environment path if not user-defined
-    if (NOT DEFINED CONANFILE_VENV_PATH)
-      set(CONANFILE_VENV_PATH "${PROJECT_BINARY_DIR}/conanfile_venv")
-    endif()
-
+    # This is where the virtual environment will be created
+    set(VENV_DIR "${CONAN_HOME}/venv")
     # Clear venv directory
-    if (EXISTS "${CONANFILE_VENV_PATH}")
-      file(REMOVE_RECURSE "${CONANFILE_VENV_PATH}")
+    if (EXISTS "${VENV_DIR}")
+      file(REMOVE_RECURSE "${VENV_DIR}")
     endif()
 
     # look for python
@@ -147,9 +395,9 @@ function(_conanfile_setup)
       elseif(${PYTHON_EXECUTABLE} MATCHES ".*/shims/python.*")
         # this is a python executable provided by pyenv, find actual python executable by executing
         # `pyenv which python`
-        find_program(PYENV_EXECUTABLE NAMES pyenv)
+        find_program(PYENV_EXECUTABLE NAMES pyenv NO_CACHE)
         if(CMAKE_HOST_WIN32) # Used instead of WIN32 for cross-compiling
-          find_program(BASH_EXECUTABLE NAMES bash)
+          find_program(BASH_EXECUTABLE NAMES bash NO_CACHE)
           execute_process(COMMAND "${BASH_EXECUTABLE}" "${PYENV_EXECUTABLE}" which python OUTPUT_VARIABLE PYTHON_EXECUTABLE
             OUTPUT_STRIP_TRAILING_WHITESPACE)
         else()
@@ -159,17 +407,16 @@ function(_conanfile_setup)
     endif()
 
     # now we have a pyton executable to create the virtual environment from
+    message(
+      STATUS "Conanfile: Creating virtual environment for Conan in ${VENV_DIR}"
+    )
     execute_process(
-      COMMAND "${PYTHON_EXECUTABLE}" -m venv "${CONANFILE_VENV_PATH}"
+      COMMAND "${PYTHON_EXECUTABLE}" -m venv "${VENV_DIR}"
       RESULT_VARIABLE VENV_CREATE_RESULT
-      OUTPUT_VARIABLE VENV_CREATE_OUTPUT
-      ERROR_VARIABLE VENV_CREATE_ERROR
     )
     if(NOT ${VENV_CREATE_RESULT} STREQUAL "0")
       message(FATAL_ERROR
-        "Conanfile: Virtual environment creation failed. Return code was '${VENV_CREATE_RESULT}':\n"
-        "${VENV_CREATE_ERROR}\n\n"
-        "Full output: ${VENV_CREATE_OUTPUT}"
+        "Conanfile: Virtual environment creation failed. Return code was '${VENV_CREATE_RESULT}'"
       )
     endif()
 
@@ -180,18 +427,21 @@ function(_conanfile_setup)
       set(PYTHON_REL_PATH bin/python)
     endif()
     set(
-      CONANFILE_VENV_PYTHON_CMD "${CONANFILE_VENV_PATH}/${PYTHON_REL_PATH}"
+      CONANFILE_VENV_PYTHON_CMD "${VENV_DIR}/${PYTHON_REL_PATH}"
       CACHE INTERNAL "Python executable for conanfile"
     )
-
   endif()
+
+  message(
+    STATUS "Conanfile: Using python from ${CONANFILE_VENV_PYTHON_CMD}"
+  )
 
   # Extract pip path from python executable path
   cmake_path(GET CONANFILE_VENV_PYTHON_CMD PARENT_PATH VENV_BIN_DIR)
-  cmake_path(GET VENV_BIN_DIR PARENT_PATH CONANFILE_VENV_PATH)
+  cmake_path(GET VENV_BIN_DIR PARENT_PATH VENV_DIR)
 
-  if (DEFINED CONANFILE_CONAN_MIN_VERSION)
-    set(PIP_INSTALL_CONAN conan>=${CONANFILE_CONAN_MIN_VERSION})
+  if (DEFINED CONANFILE_CONAN_VERSION)
+    set(PIP_INSTALL_CONAN conan${CONANFILE_CONAN_VERSION})
   else()
     set(PIP_INSTALL_CONAN conan)
   endif()
@@ -199,27 +449,27 @@ function(_conanfile_setup)
   # Invoke pip to (re) install conan
   message(
     STATUS
-    "Conanfile: Installing ${PIP_INSTALL_CONAN} in ${CONANFILE_VENV_PATH} virtual environment."
+    "Conanfile: Installing ${PIP_INSTALL_CONAN} in ${VENV_DIR} virtual environment."
   )
   execute_process(
     COMMAND ${VENV_BIN_DIR}/pip install ${PIP_INSTALL_CONAN} --force-reinstall
     RESULT_VARIABLE PIP_INSTALL_RESULT
-    OUTPUT_VARIABLE PIP_INSTALL_OUTPUT
-    ERROR_VARIABLE PIP_INSTALL_ERROR
   )
   if(NOT ${PIP_INSTALL_RESULT} STREQUAL "0")
     message(FATAL_ERROR
-      "Conanfile: Conan installation failed. Return code was '${PIP_INSTALL_RESULT}':\n"
-      "${PIP_INSTALL_ERROR}\n\n"
-      "Full output: ${PIP_INSTALL_OUTPUT}"
+      "Conanfile: Conan installation failed. Return code was '${PIP_INSTALL_RESULT}'"
     )
   endif()
 
-  find_program(CONAN_CMD conan HINTS ${VENV_BIN_DIR} NO_DEFAULT_PATH)
-  set(CONANFILE_CONAN_CMD ${CONAN_CMD} CACHE INTERNAL "Conan executable for conanfile module")
+  find_program(CONAN_CMD conan HINTS ${VENV_BIN_DIR} NO_DEFAULT_PATH NO_CACHE)
+  set(CONANFILE_CONAN_CMD "${SET_CONAN_HOME};${CONAN_CMD}" CACHE INTERNAL "Conan executable for conanfile module")
 
   # check that it's all good
   _check_conan()
+
+  if(NOT DEFINED CONANFILE_CONAN_CMD)
+    message(FATAL_ERROR "Conanfile: Conan installation failed. Please look at the CMake log to investigate.")
+  endif()
 
 endfunction()
 
@@ -547,7 +797,7 @@ function(_conanfile_detect_host_settings DETECTED_SETTINGS)
       set(CONAN_COMPILER_TOOLSET ${CMAKE_VS_PLATFORM_TOOLSET})
     endif()
   else()
-    message(FATAL_ERROR "Conanfile: compiler setup not recognized")
+    message(FATAL_ERROR "Conanfile: Compiler setup not recognized")
   endif()
 
   set(ARGUMENTS_PROFILE_AUTO arch build_type compiler compiler.version
@@ -571,21 +821,21 @@ function(_conanfile_detect_build_settings DETECTED_SETTINGS)
   string(SHA256 PROFILE_HASH ${CMAKE_CURRENT_BINARY_DIR})
   set(PROFILE_NAME cmake-conanfile_detect_${PROFILE_HASH})
   execute_process(
-    COMMAND ${CONANFILE_CONAN_CMD} profile detect --name ${PROFILE_NAME} --force
+    COMMAND ${CMAKE_COMMAND} -E env ${CONANFILE_CONAN_CMD} profile detect --name ${PROFILE_NAME} --force
     RESULT_VARIABLE PROFILE_DETECT_RESULT
-    OUTPUT_VARIABLE PROFILE_DETECT_OUTPUT
+    OUTPUT_VARIABLE PROFILE_DETECT_OUTPUT ECHO_OUTPUT_VARIABLE
     ERROR_VARIABLE PROFILE_DETECT_ERROR
   )
   if (NOT ${PROFILE_DETECT_RESULT} STREQUAL "0")
     message(FATAL_ERROR
       "Conanfile: Conan profile detection failed. Return code was '${PROFILE_DETECT_RESULT}':\n"
       "${PROFILE_DETECT_ERROR}\n\n"
-      "Full output: ${PROFILE_DETECT_OUTPUT}"
+      "Command output: ${PROFILE_DETECT_OUTPUT}"
     )
   endif()
 
   execute_process(
-    COMMAND ${CONANFILE_CONAN_CMD} profile path ${PROFILE_NAME}
+    COMMAND ${CMAKE_COMMAND} -E env ${CONANFILE_CONAN_CMD} profile path ${PROFILE_NAME}
     RESULT_VARIABLE PROFILE_PATH_RESULT
     OUTPUT_VARIABLE PROFILE_PATH_OUTPUT
     ERROR_VARIABLE PROFILE_PATH_ERROR
@@ -594,13 +844,13 @@ function(_conanfile_detect_build_settings DETECTED_SETTINGS)
     message(FATAL_ERROR
       "Conanfile: Conan profile path retrieval failed. Return code was '${PROFILE_PATH_RESULT}':\n"
       "${PROFILE_PATH_ERROR}\n\n"
-      "Full output: ${PROFILE_PATH_OUTPUT}"
+      "Command output: ${PROFILE_PATH_OUTPUT}"
     )
   endif()
 
 
   execute_process(
-    COMMAND ${CONANFILE_CONAN_CMD} profile show -f json -pr:b ${PROFILE_NAME} -pr:h ${PROFILE_NAME}
+    COMMAND ${CMAKE_COMMAND} -E env ${CONANFILE_CONAN_CMD} profile show -f json -pr:b ${PROFILE_NAME} -pr:h ${PROFILE_NAME}
     RESULT_VARIABLE PROFILE_JSON_RESULT
     OUTPUT_VARIABLE PROFILE_JSON
     ERROR_VARIABLE PROFILE_JSON_ERROR
@@ -646,7 +896,7 @@ function(_conanfile)
 
   message(
     STATUS
-    "Conanfile: generating ${CONANFILE_OUTPUT_PATH} from ${CONANFILE_TEMPLATE_FILE}"
+    "Conanfile: Generating ${CONANFILE_OUTPUT_PATH} from ${CONANFILE_TEMPLATE_FILE}"
   )
 
   # insert CMAKE_OPTIONS modification code in conanfile
@@ -706,7 +956,7 @@ function(_conanfile)
   set(CONANFILE_HASH_FILE ${CONANFILE_OUTPUT_DIR}/_hash)
   # TODO: get conan version and add it to hash
   string(SHA256 CONANFILE_HASH
-    "${CONANFILE_OUTPUT}{CONANFILE_HOST_SETTINGS}${CONANFILE_HOST_ENV}${CONANFILE_BUILD_CONF}${CONANFILE_HOST_CONF}"
+    "${CONANFILE_CONAN_CMD}${CONANFILE_OUTPUT}{CONANFILE_HOST_SETTINGS}${CONANFILE_HOST_ENV}${CONANFILE_BUILD_CONF}${CONANFILE_HOST_CONF}"
   )
 
   # load existing hash
@@ -754,21 +1004,18 @@ function(_conanfile)
       --profile:host ${CONANFILE_HOST_PROFILE}
     )
     string(REPLACE ";" " " CONANFILE_INSTALL_ARGS_STR "${CONANFILE_INSTALL_ARGS}")
-    message(STATUS "Conanfile: running ${CONANFILE_CONAN_CMD} ${CONANFILE_INSTALL_ARGS_STR}")
+    list(GET CONANFILE_CONAN_CMD -1 CONANFILE_CONAN_CMD_FOR_MSG)
+    message(STATUS "Conanfile: Running ${CONANFILE_CONAN_CMD_FOR_MSG} ${CONANFILE_INSTALL_ARGS_STR}")
 
     execute_process(
-      COMMAND ${CONANFILE_CONAN_CMD} ${CONANFILE_INSTALL_ARGS}
+      COMMAND ${CMAKE_COMMAND} -E env ${CONANFILE_CONAN_CMD} ${CONANFILE_INSTALL_ARGS}
       RESULT_VARIABLE CONANFILE_INSTALL_RESULT
-      OUTPUT_VARIABLE CONANFILE_INSTALL_OUTPUT
-      ERROR_VARIABLE CONANFILE_INSTALL_ERROR
       WORKING_DIRECTORY ${CONANFILE_OUTPUT_DIR}
     )
 
     if(NOT ${CONANFILE_INSTALL_RESULT} STREQUAL "0")
       message(FATAL_ERROR
-        "Conanfile: Conan install failed. Return code was '${CONANFILE_INSTALL_RESULT}':\n"
-        "${CONANFILE_INSTALL_ERROR}\n\n"
-        "Full output: ${CONANFILE_INSTALL_OUTPUT}"
+        "Conanfile: Conan install failed. Return code was '${CONANFILE_INSTALL_RESULT}'"
       )
     endif()
 
@@ -778,7 +1025,7 @@ function(_conanfile)
     set(TOOLCHAIN_PATHS ${CONANFILE_OUTPUT_DIR}/conan_toolchain_paths.cmake)
     message(
       STATUS
-      "Conanfile: extracting conan packages paths from ${TOOLCHAIN} into ${TOOLCHAIN_PATHS}"
+      "Conanfile: Extracting conan packages paths from ${TOOLCHAIN} into ${TOOLCHAIN_PATHS}"
     )
 
     # Only extract find_path and pkg_config blocks from conan toolchain
@@ -792,7 +1039,7 @@ function(_conanfile)
     # extract header with include guard
     string(FIND "${TOOLCHAIN_STR}" "##########" TOOLCHAIN_HEADER_END)
     if(TOOLCHAIN_HEADER_END EQUAL -1)
-      message(FATAL_ERROR "Conanfile: could not find header block in ${TOOLCHAIN}")
+      message(FATAL_ERROR "Conanfile: Could not find header block in ${TOOLCHAIN}")
     endif()
     string(SUBSTRING "${TOOLCHAIN_STR}" "0" "${TOOLCHAIN_HEADER_END}" TOOLCHAIN_PATHS_STR)
 
@@ -803,7 +1050,7 @@ function(_conanfile)
       set(BLOCK_HEADER "########## '${BLOCK}' block #############")
       string(REGEX MATCH "${BLOCK_HEADER}.*" TOOLCHAIN_${BLOCK}_BLOCK "${TOOLCHAIN_STR}")
       if (NOT TOOLCHAIN_${BLOCK}_BLOCK)
-        message(FATAL_ERROR "Conanfile: could not find '${BLOCK}' block in ${TOOLCHAIN}")
+        message(FATAL_ERROR "Conanfile: Could not find '${BLOCK}' block in ${TOOLCHAIN}")
       endif()
       string(LENGTH "${BLOCK_HEADER}" BLOCK_HEADER_LENGTH)
       string(SUBSTRING "${TOOLCHAIN_${BLOCK}_BLOCK}" "${BLOCK_HEADER_LENGTH}" -1 TOOLCHAIN_${BLOCK}_BLOCK)
