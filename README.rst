@@ -56,7 +56,7 @@ Alternatively, the file can be downloaded directly from this repository using th
 .. code-block:: cmake
 
    # Download conanfile.cmake if needed
-   set(CMAKE_CONANFILE_VERSION 0.2.0)
+   set(CMAKE_CONANFILE_VERSION 0.2.1)
    set(CMAKE_CONANFILE_PATH "${PROJECT_BINARY_DIR}/conanfile_${CMAKE_CONANFILE_VERSION}.cmake")
    if(NOT EXISTS "${CMAKE_CONANFILE_PATH}")
      message(STATUS "Downloading conanfile.cmake from https://github.com/tkhyn/cmake-conanfile")
@@ -105,9 +105,9 @@ CONANFILE_LOCAL_CONAN_HOME
    `CONANFILE_LOCAL_CONAN_HOME` should be OS-dependent, as the conan configuration and virtual
    environments cannot be shared. You may for example have:
 
-   ```cmake
-   set(CONANFILE_LOCAL_CONAN_HOME "${PROJECT_SOURCE_DIR}/.conan/${CMAKE_SYSTEM_NAME}")
-   ```
+   .. code-block:: cmake
+
+      set(CONANFILE_LOCAL_CONAN_HOME "${PROJECT_SOURCE_DIR}/.conan/${CMAKE_SYSTEM_NAME}")
 
 CONANFILE_PYTHON_EXECUTABLE
    Defines the python executable to use to create the virtual environment. Generally passed as a

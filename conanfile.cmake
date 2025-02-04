@@ -1,7 +1,7 @@
 #
 # cmake-conanfile
 #
-# v 0.2.0
+# v 0.2.1
 # https://github.com/tkhyn/cmake-conanfile
 #
 # CMake wrapper for Conan 2
@@ -722,29 +722,9 @@ function(_conanfile_detect_host_settings DETECTED_SETTINGS)
     AND "${CMAKE_${LANGUAGE}_COMPILER_FRONTEND_VARIANT}" STREQUAL "MSVC"
     AND "${CMAKE_${LANGUAGE}_SIMULATE_ID}" STREQUAL "MSVC"))
 
-    set(_VISUAL "msvc")
-
-    # Find MSVC version
-    if(NOT MSVC_VERSION VERSION_LESS 1600 AND MSVC_VERSION VERSION_LESS 1700)
-      set(MSVC_VERSION 170)
-    elseif(NOT MSVC_VERSION VERSION_LESS 1700 AND MSVC_VERSION VERSION_LESS 1800)
-      set(MSVC_VERSION 180)
-    elseif(NOT MSVC_VERSION VERSION_LESS 1800 AND MSVC_VERSION VERSION_LESS 1900)
-      set(MSVC_VERSION 190)
-    elseif(NOT MSVC_VERSION VERSION_LESS 1900 AND MSVC_VERSION VERSION_LESS 1910)
-      set(MSVC_VERSION 191)
-    elseif(NOT MSVC_VERSION VERSION_LESS 1910 AND MSVC_VERSION VERSION_LESS 1920)
-      set(MSVC_VERSION 192)
-    elseif(NOT MSVC_VERSION VERSION_LESS 1920 AND MSVC_VERSION VERSION_LESS 1930)
-      set(MSVC_VERSION 193)
-    elseif(NOT MSVC_VERSION VERSION_LESS 1930 AND MSVC_VERSION VERSION_LESS_EQUAL 1940)
-      set(MSVC_VERSION 194)
-    else()
-      message(FATAL_ERROR "Conanfile: Unknown MSVC compiler version [${MSVC_VERSION}]")
-    endif()
-
-    set(CONAN_COMPILER ${_VISUAL})
-    set(CONAN_COMPILER_VERSION ${MSVC_VERSION})
+    set(CONAN_COMPILER "msvc")
+    # Find MSVC version by trimming the last digit
+    string(SUBSTRING ${MSVC_VERSION} 0 3 CONAN_COMPILER_VERSION)
 
     if(NOT CONAN_ARCH)
       if (MSVC_${LANGUAGE}_ARCHITECTURE_ID MATCHES "64")
@@ -951,6 +931,10 @@ function(_conanfile)
     # When not cross-compiling, the host and build settings are identical
     set(CONANFILE_BUILD_SETTINGS ${CONANFILE_HOST_SETTINGS})
   endif()
+
+  # Some application packages do not have del self.info.settings.build_type in package_id.
+  # We force the build_type to Release to avoid unoptimised dependencies to be pulled in / built
+  list(TRANSFORM CONANFILE_BUILD_SETTINGS REPLACE "build_type=.*" "build_type=Release")
 
   # use a hash file to check if we need to run conan
   set(CONANFILE_HASH_FILE ${CONANFILE_OUTPUT_DIR}/_hash)
