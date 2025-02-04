@@ -932,6 +932,10 @@ function(_conanfile)
     set(CONANFILE_BUILD_SETTINGS ${CONANFILE_HOST_SETTINGS})
   endif()
 
+  # Some application packages do not have del self.info.settings.build_type in package_id.
+  # We force the build_type to Release to avoid unoptimised dependencies to be pulled in / built
+  list(TRANSFORM CONANFILE_BUILD_SETTINGS REPLACE "build_type=.*" "build_type=Release")
+
   # use a hash file to check if we need to run conan
   set(CONANFILE_HASH_FILE ${CONANFILE_OUTPUT_DIR}/_hash)
   # TODO: get conan version and add it to hash
