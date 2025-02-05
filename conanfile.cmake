@@ -645,7 +645,14 @@ function(_conanfile_detect_host_settings DETECTED_SETTINGS)
     endif ()
 
     if(NOT CONAN_ARCH)
-      execute_process(COMMAND ${CMAKE_C_COMPILER} -dumpmachine OUTPUT_VARIABLE CONAN_ARCH)
+      if(CMAKE_C_COMPILER)
+        execute_process(COMMAND ${CMAKE_C_COMPILER} -dumpmachine OUTPUT_VARIABLE CONAN_ARCH)
+      elseif(CMAKE_CXX_COMPILER)
+        execute_process(COMMAND ${CMAKE_CXX_COMPILER} -dumpmachine OUTPUT_VARIABLE CONAN_ARCH)
+      else()
+        message(FATAL_ERROR "Conanfile: No CMAKE_C(XX)_COMPILER available to detect architecture")
+      endif()
+
       string(REPLACE "-" ";" CONAN_ARCH ${CONAN_ARCH})
 
       list(GET CONAN_ARCH 0 CONAN_ARCH)
