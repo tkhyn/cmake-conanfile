@@ -115,6 +115,27 @@ class TestLocal(TestBase):
             assert Path(m[1]) == self.binary_dir / ".conan"
 
 
+class TestOptionsEmpty(TestBase):
+    source_dir = Path(__file__).parent / "options_empty"
+
+    def test_options(self, capfd):
+        run(f"cmake -S {self.source_dir} -DCMAKE_BUILD_TYPE=Release")
+        out = capfd.readouterr()[0]
+
+        assert all(expected in out for expected in [
+            "Configuring done",
+            "Generating done"
+        ])
+
+        conanfile_bin_path = Path("conanfile.py") / "conanfile.py"
+        with open(conanfile_bin_path, "r") as f:
+            conanfile_bin_path_content = f.read()
+            assert re.search(
+                "CMAKE_OPTIONS\.update\(dict\(\s+\)\)",
+                conanfile_bin_path_content, re.MULTILINE
+            )
+
+
 class TestSystem(TestBase):
 
     source_dir = Path(__file__).parent / "system"

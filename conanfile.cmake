@@ -878,7 +878,7 @@ endfunction()
 # cmake cache and global namespace
 function(_conanfile)
 
-  cmake_parse_arguments(ARGS "" "CONANFILE" "SETTINGS" ${ARGN})
+  cmake_parse_arguments(ARGS "" "CONANFILE" "SETTINGS;OPTIONS" ${ARGN})
 
   set(CONANFILE_TEMPLATE_FILE "${CMAKE_CURRENT_SOURCE_DIR}/${ARGS_CONANFILE}")
   set(CONANFILE_OUTPUT_DIR "${CMAKE_CURRENT_BINARY_DIR}/${ARGS_CONANFILE}")
@@ -899,7 +899,7 @@ function(_conanfile)
   file(READ "${CONANFILE_TEMPLATE_FILE}" CONANFILE_TEMPLATE)
 
   # replace ; by , in arguments list
-  string(REPLACE ";" ",\\n    " CMAKE_OPTIONS "${ARGS_UNPARSED_ARGUMENTS}")
+  string(REPLACE ";" ",\\n    " CMAKE_OPTIONS "${ARGS_OPTIONS}")
 
   # inject CMake options to update python variable, if present and defined
   string(REGEX REPLACE
