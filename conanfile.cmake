@@ -1,7 +1,7 @@
 #
 # cmake-conanfile
 #
-# v 0.2.1
+# v 0.2.2
 # https://github.com/tkhyn/cmake-conanfile
 #
 # CMake wrapper for Conan 2
@@ -562,6 +562,30 @@ function(_conanfile_detect_unix_libcxx result)
 endfunction()
 
 
+function(_conanfile_detect_arch ARCH)
+  if (${ARCH})
+    return()
+  endif()
+
+  if(CMAKE_C_COMPILER)
+    execute_process(COMMAND ${CMAKE_C_COMPILER} -dumpmachine OUTPUT_VARIABLE DETECTED_ARCH)
+  elseif(CMAKE_CXX_COMPILER)
+    execute_process(COMMAND ${CMAKE_CXX_COMPILER} -dumpmachine OUTPUT_VARIABLE DETECTED_ARCH)
+  else()
+    message(FATAL_ERROR "Conanfile: No CMAKE_C(XX)_COMPILER available to detect architecture")
+  endif()
+
+  string(REPLACE "-" ";" DETECTED_ARCH ${DETECTED_ARCH})
+
+  list(GET DETECTED_ARCH 0 DETECTED_ARCH)
+  if (${DETECTED_ARCH} STREQUAL "aarch64")
+    set(DETECTED_ARCH armv8)
+  endif()
+
+  set(${ARCH} ${DETECTED_ARCH} PARENT_SCOPE)
+endfunction()
+
+
 # Largely inspired from cmake-conan 1.0 implementation (https://github.com/conan-io/cmake-conan/)
 function(_conanfile_detect_host_settings DETECTED_SETTINGS)
 
@@ -643,16 +667,7 @@ function(_conanfile_detect_host_settings DETECTED_SETTINGS)
       _conanfile_detect_unix_libcxx(_LIBCXX)
       set(CONAN_COMPILER_LIBCXX ${_LIBCXX})
     endif ()
-
-    if(NOT CONAN_ARCH)
-      execute_process(COMMAND ${CMAKE_C_COMPILER} -dumpmachine OUTPUT_VARIABLE CONAN_ARCH)
-      string(REPLACE "-" ";" CONAN_ARCH ${CONAN_ARCH})
-
-      list(GET CONAN_ARCH 0 CONAN_ARCH)
-      if (${CONAN_ARCH} STREQUAL "aarch64")
-        set(CONAN_ARCH armv8)
-      endif()
-    endif()
+    _conanfile_detect_arch(CONAN_ARCH)
   elseif (${CMAKE_${LANGUAGE}_COMPILER_ID} STREQUAL Intel)
     string(REPLACE "." ";" VERSION_LIST ${CMAKE_${LANGUAGE}_COMPILER_VERSION})
     list(GET VERSION_LIST 0 MAJOR)
@@ -717,6 +732,7 @@ function(_conanfile_detect_host_settings DETECTED_SETTINGS)
       _conanfile_detect_unix_libcxx(_LIBCXX)
       set(CONAN_COMPILER_LIBCXX ${_LIBCXX})
     endif ()
+    _conanfile_detect_arch(CONAN_ARCH)
   elseif(${CMAKE_${LANGUAGE}_COMPILER_ID} STREQUAL MSVC
     OR (${CMAKE_${LANGUAGE}_COMPILER_ID} STREQUAL Clang
     AND "${CMAKE_${LANGUAGE}_COMPILER_FRONTEND_VARIANT}" STREQUAL "MSVC"
@@ -862,7 +878,7 @@ endfunction()
 # cmake cache and global namespace
 function(_conanfile)
 
-  cmake_parse_arguments(ARGS "" "CONANFILE" "SETTINGS" ${ARGN})
+  cmake_parse_arguments(ARGS "" "CONANFILE" "SETTINGS;OPTIONS" ${ARGN})
 
   set(CONANFILE_TEMPLATE_FILE "${CMAKE_CURRENT_SOURCE_DIR}/${ARGS_CONANFILE}")
   set(CONANFILE_OUTPUT_DIR "${CMAKE_CURRENT_BINARY_DIR}/${ARGS_CONANFILE}")
@@ -883,7 +899,7 @@ function(_conanfile)
   file(READ "${CONANFILE_TEMPLATE_FILE}" CONANFILE_TEMPLATE)
 
   # replace ; by , in arguments list
-  string(REPLACE ";" ",\\n    " CMAKE_OPTIONS "${ARGS_UNPARSED_ARGUMENTS}")
+  string(REPLACE ";" ",\\n    " CMAKE_OPTIONS "${ARGS_OPTIONS}")
 
   # inject CMake options to update python variable, if present and defined
   string(REGEX REPLACE

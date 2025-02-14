@@ -51,6 +51,11 @@ directory), and simply use:
 
    include(conanfile)
 
+.. important::
+
+   The ``include(conanfile)`` call **must** happen after the ``project()`` call in ``CMakeLists.txt``.
+   Otherwise the build configuration (compiler, build type, etc.) will not be detected correctly.
+
 Alternatively, the file can be downloaded directly from this repository using the following code:
 
 .. code-block:: cmake
