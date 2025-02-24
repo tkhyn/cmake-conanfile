@@ -1,7 +1,7 @@
 #
 # cmake-conanfile
 #
-# v 0.2.2
+# v 0.2.3
 # https://github.com/tkhyn/cmake-conanfile
 #
 # CMake wrapper for Conan 2
@@ -921,12 +921,6 @@ function(_conanfile)
   if (CMAKE_CROSSCOMPILING)
     # This uses `conan profile detect` to get the build environment's default settings
     _conanfile_detect_build_settings(CONANFILE_BUILD_SETTINGS)
-
-    # propagate compiler environment variable to host environment
-    list(
-      APPEND CONANFILE_HOST_ENV
-      CC=${CMAKE_C_COMPILER} CXX=${CMAKE_CXX_COMPILER} CONAN_DISABLE_CHECK_COMPILER="ON"
-    )
     if (CMAKE_TOOLCHAIN_FILE)
       # propagate toolchain file to configuration and host environment
       string(REPLACE "\\" "/" CMAKE_TOOLCHAIN_FILE ${CMAKE_TOOLCHAIN_FILE})
@@ -946,7 +940,19 @@ function(_conanfile)
   else()
     # When not cross-compiling, the host and build settings are identical
     set(CONANFILE_BUILD_SETTINGS ${CONANFILE_HOST_SETTINGS})
+    # also propagate compiler environment variable to build environment (will be added to host
+    # environment as well below)
+    list(
+      APPEND CONANFILE_BUILD_ENV
+      CC=${CMAKE_C_COMPILER} CXX=${CMAKE_CXX_COMPILER} CONAN_DISABLE_CHECK_COMPILER="ON"
+    )
   endif()
+
+  # propagate compiler environment variable to host environment
+  list(
+    APPEND CONANFILE_HOST_ENV
+    CC=${CMAKE_C_COMPILER} CXX=${CMAKE_CXX_COMPILER} CONAN_DISABLE_CHECK_COMPILER="ON"
+  )
 
   # Some application packages do not have del self.info.settings.build_type in package_id.
   # We force the build_type to Release to avoid unoptimised dependencies to be pulled in / built
@@ -956,7 +962,7 @@ function(_conanfile)
   set(CONANFILE_HASH_FILE ${CONANFILE_OUTPUT_DIR}/_hash)
   # TODO: get conan version and add it to hash
   string(SHA256 CONANFILE_HASH
-    "${CONANFILE_CONAN_CMD}${CONANFILE_OUTPUT}{CONANFILE_HOST_SETTINGS}${CONANFILE_HOST_ENV}${CONANFILE_BUILD_CONF}${CONANFILE_HOST_CONF}"
+    "${CONANFILE_CONAN_CMD}${CONANFILE_OUTPUT}{CONANFILE_HOST_SETTINGS}${CONANFILE_HOST_ENV}${CONANFILE_BUILD_ENV}${CONANFILE_BUILD_CONF}${CONANFILE_HOST_CONF}"
   )
 
   # load existing hash
@@ -967,7 +973,7 @@ function(_conanfile)
 
   if (NOT ${CONANFILE_HASH_EXISTING} STREQUAL ${CONANFILE_HASH})
     # hashes differ, run conan
-    foreach(SECTION BUILD_SETTINGS HOST_SETTINGS BUILD_CONF HOST_CONF HOST_ENV)
+    foreach(SECTION BUILD_SETTINGS HOST_SETTINGS BUILD_ENV HOST_ENV BUILD_CONF HOST_CONF)
       string (REPLACE ";" "\n" CONANFILE_${SECTION} "${CONANFILE_${SECTION}}")
     endforeach()
 
@@ -976,6 +982,12 @@ function(_conanfile)
     file(CONFIGURE OUTPUT ${CONANFILE_BUILD_PROFILE} CONTENT "
 [settings]
 @CONANFILE_BUILD_SETTINGS@
+
+[runenv]
+@CONANFILE_BUILD_ENV@
+
+[buildenv]
+@CONANFILE_BUILD_ENV@
 
 [conf]
 @CONANFILE_BUILD_CONF@
