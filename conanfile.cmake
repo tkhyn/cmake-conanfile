@@ -1,7 +1,7 @@
 #
 # cmake-conanfile
 #
-# v 0.2.3
+# v 0.3.0-dev
 # https://github.com/tkhyn/cmake-conanfile
 #
 # CMake wrapper for Conan 2
