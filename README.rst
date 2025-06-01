@@ -81,7 +81,7 @@ Setup
 The behaviour of ``cmake-conanfile`` can be customised using optional cmake variables, that must be
 defined before the call to ``include(conanfile)``.
 
-CONANFILE_CONAN
+CONANFILE_CONAN = AUTO
    Can be ``LOCAL``, ``AUTO`` (default) or ``SYSTEM``:
 
    - If set to ``LOCAL``, ``cmake-conanfile`` will not consider any system-wide Conan installation
@@ -98,12 +98,12 @@ CONANFILE_CONAN_VERSION = ~=2.0
    The version requirement of Conan, `pip-style <https://pip.pypa.io/en/stable/reference/requirement-specifiers/>`_.
    Combined with ``CONANFILE_CONAN`` to determine if a local conan needs to be installed.
 
-CONANFILE_LOCAL_CONAN_HOME
+CONANFILE_LOCAL_CONAN_HOME = ${PROJECT_SOURCE_DIR}/.conan
    The path to the directory that will contain the virtual environment and the local conan home,
    if a local conan gets installed (which depends on ``CONANFILE_CONAN_VERSION`` and
    ``CONANFILE_CONAN``). All invocations to the main `conanfile()` function within the
    scope of the CMake project will use the same virtual environment, conan version and conan home
-   folder. Defaults to ``${PROJECT_SOURCE_DIR}/.conan``.
+   folder.
 
 .. warning::
    If multiple OSes use the same working tree (for example building from WSL on Windows),
