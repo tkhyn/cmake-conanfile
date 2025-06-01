@@ -1011,7 +1011,7 @@ function(_conanfile)
 ")
 
     # run conan
-    set(CONANFILE_INSTALL_ARGS install ${CONANFILE_OUTPUT_PATH} --build missing
+    set(CONANFILE_INSTALL_ARGS install ${CONANFILE_OUTPUT_PATH} --build missing --update
       --profile:build ${CONANFILE_BUILD_PROFILE}
       --profile:host ${CONANFILE_HOST_PROFILE}
     )
