@@ -176,6 +176,9 @@ OPTIONS
    A list of options ``key=value`` (``value`` must be understandable by python) that will be
    forwarded to the conanfile.py
 
+CXX_FLAGS
+   A list of compiler flags that need to be used to compile conan dependencies. This can be
+   particularly useful for ``fsanitize`` flags for example.
 
 Troubleshooting
 ===============
