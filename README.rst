@@ -180,6 +180,18 @@ CXX_FLAGS
    A list of compiler flags that need to be used to compile conan dependencies. This can be
    particularly useful for ``fsanitize`` flags for example.
 
+SETTINGS, HOST_SETTINGS, BUILD_SETTINGS
+   Conan setting overrides for host and build settings, or both. ``SETTINGS`` will override the
+   automatically detected settings. They will then be overridden by ``HOST_SETTINGS`` for the
+   host profile and ``BUILD_SETTINGS`` for the build profile.
+   Here is an example to lower the C++ standard for build/tool dependencies if they
+   can't be built with the project's C++ standard:
+
+   .. code-block:: cmake
+
+      # CMAKE_CXX_STANDARD is set to 23 for the project, setting it to 20 for the build dependencies
+      conanfile(BUILD_SETTINGS compiler.cppstd=20)
+
 Troubleshooting
 ===============
 

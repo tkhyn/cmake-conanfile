@@ -878,7 +878,9 @@ endfunction()
 # cmake cache and global namespace
 function(_conanfile)
 
-  cmake_parse_arguments(ARGS "" "CONANFILE" "SETTINGS;OPTIONS;CXX_FLAGS" ${ARGN})
+  cmake_parse_arguments(
+    ARGS "" "CONANFILE" "OPTIONS;CXX_FLAGS;SETTINGS;HOST_SETTINGS;BUILD_SETTINGS" ${ARGN}
+  )
 
   set(CONANFILE_TEMPLATE_FILE "${CMAKE_CURRENT_SOURCE_DIR}/${ARGS_CONANFILE}")
   set(CONANFILE_OUTPUT_DIR "${CMAKE_CURRENT_BINARY_DIR}/${ARGS_CONANFILE}")
@@ -916,23 +918,6 @@ function(_conanfile)
 
   # make sure CMAKE_GENERATOR is propagated to the conan host config
   list(APPEND CONANFILE_HOST_CONF "tools.cmake.cmaketoolchain:generator=${CMAKE_GENERATOR}")
-
-  # Enforce CXX flags on conan dependencies if required
-  if (ARGS_CXX_FLAGS)
-    # Convert CMake CXX flags to Python list format
-    set(CMAKE_CXX_FLAGS_PYTHON_LIST "[")
-    foreach(FLAG ${ARGS_CXX_FLAGS})
-      set(CMAKE_CXX_FLAGS_PYTHON_LIST "${CMAKE_CXX_FLAGS_PYTHON_LIST}\"${FLAG}\", ")
-    endforeach()
-    # remove last comma and add closing bracket
-    string(REGEX REPLACE ", $" "" CMAKE_CXX_FLAGS_PYTHON_LIST "${CMAKE_CXX_FLAGS_PYTHON_LIST}")
-    set(CMAKE_CXX_FLAGS_PYTHON_LIST "${CMAKE_CXX_FLAGS_PYTHON_LIST}]")
-
-    list(APPEND CONANFILE_HOST_CONF
-      "tools.build:cxxflags=${CMAKE_CXX_FLAGS_PYTHON_LIST}"
-      "tools.info.package_id:confs=[\"tools.build:cxxflags\"]"
-    )
-  endif()
 
   # handle different build and host settings, environment and configuration when cross-compiling
   if (CMAKE_CROSSCOMPILING)
@@ -974,6 +959,10 @@ function(_conanfile)
   # Some application packages do not have del self.info.settings.build_type in package_id.
   # We force the build_type to Release to avoid unoptimised dependencies to be pulled in / built
   list(TRANSFORM CONANFILE_BUILD_SETTINGS REPLACE "build_type=.*" "build_type=Release")
+
+  # Overrides auto detected settings with user-provided settings
+  list(APPEND CONANFILE_BUILD_SETTINGS ${ARGS_SETTINGS};${ARGS_BUILD_SETTINGS})
+  list(APPEND CONANFILE_BUILD_SETTINGS ${ARGS_SETTINGS};${ARGS_HOST_SETTINGS})
 
   # use a hash file to check if we need to run conan
   set(CONANFILE_HASH_FILE ${CONANFILE_OUTPUT_DIR}/_hash)
