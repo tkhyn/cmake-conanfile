@@ -1,7 +1,7 @@
 #
 # cmake-conanfile
 #
-# v 0.2.3
+# v 0.3.0-dev
 # https://github.com/tkhyn/cmake-conanfile
 #
 # CMake wrapper for Conan 2
@@ -763,15 +763,12 @@ function(_conanfile_detect_host_settings DETECTED_SETTINGS)
       if(NOT "${${VARIABLE}}" STREQUAL "")
         string(REPLACE " " ";" flags "${${VARIABLE}}")
         foreach (flag ${flags})
-          if("${flag}" STREQUAL "/MD" OR "${flag}" STREQUAL "/MDd" OR "${flag}" STREQUAL "/MT" OR "${flag}" STREQUAL "/MTd")
-            string(SUBSTRING "${flag}" 1 -1 VS_RUNTIME)
-            if (${VS_RUNTIME} STREQUAL "MD")
+          if("${flag}" STREQUAL "/MD" OR "${flag}" STREQUAL "/MDd")
               set(${VS_RUNTIME} "dynamic")
-            elseif (${VS_RUNTIME} STREQUAL "MT")
-              set(${VS_RUNTIME} "static")
-            endif()
-            break()
+          elseif("${flag}" STREQUAL "/MT" OR "${flag}" STREQUAL "/MTd")
+            set(${VS_RUNTIME} "static")
           endif()
+          break()
         endforeach()
         if (DEFINED VS_RUNTIME)
           break()
@@ -878,7 +875,9 @@ endfunction()
 # cmake cache and global namespace
 function(_conanfile)
 
-  cmake_parse_arguments(ARGS "" "CONANFILE" "SETTINGS;OPTIONS" ${ARGN})
+  cmake_parse_arguments(
+    ARGS "" "CONANFILE" "OPTIONS;CXX_FLAGS;SETTINGS;HOST_SETTINGS;BUILD_SETTINGS" ${ARGN}
+  )
 
   set(CONANFILE_TEMPLATE_FILE "${CMAKE_CURRENT_SOURCE_DIR}/${ARGS_CONANFILE}")
   set(CONANFILE_OUTPUT_DIR "${CMAKE_CURRENT_BINARY_DIR}/${ARGS_CONANFILE}")
@@ -958,6 +957,10 @@ function(_conanfile)
   # We force the build_type to Release to avoid unoptimised dependencies to be pulled in / built
   list(TRANSFORM CONANFILE_BUILD_SETTINGS REPLACE "build_type=.*" "build_type=Release")
 
+  # Overrides auto detected settings with user-provided settings
+  list(APPEND CONANFILE_BUILD_SETTINGS ${ARGS_SETTINGS};${ARGS_BUILD_SETTINGS})
+  list(APPEND CONANFILE_BUILD_SETTINGS ${ARGS_SETTINGS};${ARGS_HOST_SETTINGS})
+
   # use a hash file to check if we need to run conan
   set(CONANFILE_HASH_FILE ${CONANFILE_OUTPUT_DIR}/_hash)
   # TODO: get conan version and add it to hash
@@ -1011,7 +1014,7 @@ function(_conanfile)
 ")
 
     # run conan
-    set(CONANFILE_INSTALL_ARGS install ${CONANFILE_OUTPUT_PATH} --build missing
+    set(CONANFILE_INSTALL_ARGS install ${CONANFILE_OUTPUT_PATH} --build missing --update
       --profile:build ${CONANFILE_BUILD_PROFILE}
       --profile:host ${CONANFILE_HOST_PROFILE}
     )

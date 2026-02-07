@@ -81,7 +81,7 @@ Setup
 The behaviour of ``cmake-conanfile`` can be customised using optional cmake variables, that must be
 defined before the call to ``include(conanfile)``.
 
-CONANFILE_CONAN
+CONANFILE_CONAN = AUTO
    Can be ``LOCAL``, ``AUTO`` (default) or ``SYSTEM``:
 
    - If set to ``LOCAL``, ``cmake-conanfile`` will not consider any system-wide Conan installation
@@ -98,12 +98,12 @@ CONANFILE_CONAN_VERSION = ~=2.0
    The version requirement of Conan, `pip-style <https://pip.pypa.io/en/stable/reference/requirement-specifiers/>`_.
    Combined with ``CONANFILE_CONAN`` to determine if a local conan needs to be installed.
 
-CONANFILE_LOCAL_CONAN_HOME
+CONANFILE_LOCAL_CONAN_HOME = ${PROJECT_SOURCE_DIR}/.conan
    The path to the directory that will contain the virtual environment and the local conan home,
    if a local conan gets installed (which depends on ``CONANFILE_CONAN_VERSION`` and
    ``CONANFILE_CONAN``). All invocations to the main `conanfile()` function within the
    scope of the CMake project will use the same virtual environment, conan version and conan home
-   folder. Defaults to ``${PROJECT_SOURCE_DIR}/.conan``.
+   folder.
 
 .. warning::
    If multiple OSes use the same working tree (for example building from WSL on Windows),
@@ -176,6 +176,21 @@ OPTIONS
    A list of options ``key=value`` (``value`` must be understandable by python) that will be
    forwarded to the conanfile.py
 
+CXX_FLAGS
+   A list of compiler flags that need to be used to compile conan dependencies. This can be
+   particularly useful for ``fsanitize`` flags for example.
+
+SETTINGS, HOST_SETTINGS, BUILD_SETTINGS
+   Conan setting overrides for host and build settings, or both. ``SETTINGS`` will override the
+   automatically detected settings. They will then be overridden by ``HOST_SETTINGS`` for the
+   host profile and ``BUILD_SETTINGS`` for the build profile.
+   Here is an example to lower the C++ standard for build/tool dependencies if they
+   can't be built with the project's C++ standard:
+
+   .. code-block:: cmake
+
+      # CMAKE_CXX_STANDARD is set to 23 for the project, setting it to 20 for the build dependencies
+      conanfile(BUILD_SETTINGS compiler.cppstd=20)
 
 Troubleshooting
 ===============
